@@ -8,7 +8,7 @@ use std::path::Path;
 #[derive(Debug)]
 pub struct Locus {
     pub name: String,
-    pub chromosome: Chromosome,
+    // pub chromosome: Chromosome,
     pub genotype: f64,
     pub dominance: f64,
     pub text: String,
@@ -24,23 +24,105 @@ pub struct Chromosome {
     pub size: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub enum Genotype {
+    Mat,
+    Pat,
+    Het,
+    Unk,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Metadata {
     pub name: String,
     pub maternal: String,
     pub paternal: String,
+    pub dataset_type: String,
     pub heterozygous: String, // defaults to "H"
     pub unknown: String,      // defaults to "U"
 }
 
 impl Metadata {
-    fn new(name: &str, maternal: &str, paternal: &str) -> Metadata {
+    fn new(name: &str, maternal: &str, paternal: &str, dataset_type: &str) -> Metadata {
         Metadata {
             name: String::from(name),
             maternal: String::from(maternal),
             paternal: String::from(paternal),
+            dataset_type: String::from(dataset_type),
             heterozygous: String::from("H"),
             unknown: String::from("U"),
+        }
+    }
+
+    fn parse_genotype(&self, geno: &str) -> Genotype {
+        if geno == self.maternal.as_str() {
+            Genotype::Mat
+        } else if geno == self.paternal.as_str() {
+            Genotype::Pat
+        } else if geno == self.heterozygous.as_str() {
+            Genotype::Het
+        } else if geno == self.unknown.as_str() {
+            Genotype::Unk
+        } else {
+            panic!("Failed to parse genotype: {}", geno);
+        }
+    }
+
+    fn parse_line(line: &str) -> Option<(&str, &str)> {
+        if line.starts_with("#") {
+            return None;
+        }
+
+        if line.starts_with("@") {
+            let sep = line.find(':').unwrap();
+            let name = &line[1..sep];
+            let val = &line[sep + 1..];
+
+            return Some((name, val));
+        }
+
+        None
+    }
+
+    // panic!s if the provided lines do not contain @name, @mat, and @pat fields
+    pub fn from_lines(lines: Vec<&str>) -> Metadata {
+        let mut name: Option<String> = None;
+        let mut mat: Option<String> = None;
+        let mut pat: Option<String> = None;
+
+        // the type should be either `riset` or `intercross`; fix later
+        let mut typ: Option<String> = None;
+        let mut het = String::from("H");
+        let mut unk = String::from("U");
+
+        for line in lines.iter() {
+            if let Some((n, v)) = Metadata::parse_line(line) {
+                match n {
+                    "name" => name = Some(String::from(v)),
+                    "mat" => mat = Some(String::from(v)),
+                    "pat" => pat = Some(String::from(v)),
+                    "type" => typ = Some(String::from(v)),
+                    "het" => het = String::from(v),
+                    "unk" => unk = String::from(v),
+                    _ => (),
+                }
+            }
+        }
+
+        if name == None || mat == None || pat == None || typ == None {
+            panic!(
+                "Required metadata was not provided!\nname = {:?}\nmat = {:?}\npat = {:?}\ntype = {:?}",
+                name, mat, pat, typ
+            );
+        }
+
+        Metadata {
+            name: name.unwrap(),
+            maternal: mat.unwrap(),
+            paternal: pat.unwrap(),
+            dataset_type: typ.unwrap(),
+            heterozygous: het,
+            unknown: unk,
         }
     }
 }
@@ -86,6 +168,28 @@ pub struct Trait {
 //     };
 // }
 
+fn parse_dataset<'a, I>(lines: &mut I) -> Option<(Metadata, DatasetHeader, Vec<DatasetLine>)>
+where
+    I: Iterator<Item = &'a str>,
+{
+    // let pred = |l| !l.starts_with("Chr	Locus	cM");
+    let metadata = Metadata::from_lines(
+        lines
+            .take_while(|l| !l.starts_with("Chr	Locus	cM"))
+            .collect(),
+    );
+    // let mut lines_rest = lines.skip_while(|l| !l.starts_with("Chr	Locus	cM"));
+
+    let header = match lines.next() {
+        None => panic!(""),
+        Some(l) => DatasetHeader::from_line(l),
+    };
+    // let rest = lines.skip_while(!pred);
+
+    // lines.skip_while(|l| !l.starts_with("Chr	Locus	cM")).into_iter()
+    None
+}
+
 impl QTL {
     pub fn new(locus: Locus, lrs: f64, additive: f64, dominance: f64) -> QTL {
         QTL {
@@ -118,136 +222,112 @@ fn parse_tab_delim_line(line: &str) -> Vec<String> {
         .collect()
 }
 
-// fn parse_metadata_line(line: &str) -> Option<(String, String)> {
-fn parse_metadata_line(line: &str) -> Option<(&str, &str)> {
-    if line.starts_with("#") {
-        return None;
-    }
-
-    if line.starts_with("@") {
-        let sep = line.find(':').unwrap();
-        let name = &line[1..sep];
-        let val = &line[sep + 1..];
-
-        return Some((name, val));
-    }
-
-    None
-}
-
-// panic!s if the provided lines do not contain @name, @mat, and @pat fields
-fn parse_metadata_lines(lines: Vec<&str>) -> Metadata {
-    let mut name: Option<String> = None;
-    let mut mat: Option<String> = None;
-    let mut pat: Option<String> = None;
-    let mut het = String::from("H");
-    let mut unk = String::from("U");
-
-    for line in lines.iter() {
-        if let Some((n, v)) = parse_metadata_line(line) {
-            match n {
-                "name" => name = Some(String::from(v)),
-                "mat" => mat = Some(String::from(v)),
-                "pat" => pat = Some(String::from(v)),
-                "het" => het = String::from(v),
-                "unk" => unk = String::from(v),
-                _ => (),
-            }
-        }
-    }
-
-    if name == None || mat == None || pat == None {
-        panic!(
-            "Required metadata was not provided!\nname = {:?}\nmat = {:?}\npat = {:?}",
-            name, mat, pat
-        );
-    }
-
-    Metadata {
-        name: name.unwrap(),
-        maternal: mat.unwrap(),
-        paternal: pat.unwrap(),
-        heterozygous: het,
-        unknown: unk,
-    }
-}
-
 #[derive(Debug)]
-struct DatasetHeader {
+pub struct DatasetHeader {
     has_cm: bool,
     strains: Vec<String>,
 }
 
-fn parse_header_line(line: &str) -> Option<DatasetHeader> {
-    let header_words = parse_tab_delim_line(&line);
+impl DatasetHeader {
+    pub fn from_line(line: &str) -> Option<DatasetHeader> {
+        let header_words = parse_tab_delim_line(&line);
 
-    let has_cm = match header_words.get(3) {
-        None => panic!("Dataset header had less than four elements; no strains!"),
-        Some(w) => w == "Mb",
-    };
+        let has_cm = match header_words.get(3) {
+            None => panic!("Dataset header had less than four elements; no strains!"),
+            Some(w) => w == "Mb",
+        };
 
-    let skip_n = if has_cm { 4 } else { 3 };
+        let skip_n = if has_cm { 4 } else { 3 };
 
-    let strains = header_words
-        .into_iter()
-        .skip(skip_n)
-        .map(|s| String::from(s))
-        .collect();
+        let strains = header_words
+            .into_iter()
+            .skip(skip_n)
+            .map(|s| String::from(s))
+            .collect();
 
-    Some(DatasetHeader { has_cm, strains })
+        Some(DatasetHeader { has_cm, strains })
+    }
 }
 
 #[derive(Debug, PartialEq)]
-struct DatasetLine<'a> {
+struct DatasetLine {
     chromosome: String,
     locus: String,
     centi_morgan: f64,
     mega_basepair: Option<f64>,
-    genotypes: Vec<&'a str>,
+    genotypes: Vec<Genotype>,
+    // genotypes: Vec<&'a str>,
 }
 
-fn parse_data_line<'a>(
-    header: &DatasetHeader,
-    metadata: &'a Metadata,
-    line: &str,
-) -> Option<DatasetLine<'a>> {
-    let words = parse_tab_delim_line(&line);
+impl DatasetLine {
+    fn from_line(header: &DatasetHeader, metadata: &Metadata, line: &str) -> Option<DatasetLine> {
+        let words = parse_tab_delim_line(&line);
 
-    let chromosome = words.get(0).unwrap().clone();
-    let locus = words.get(1).unwrap().clone();
-    let centi_morgan = words.get(2).unwrap().parse::<f64>().unwrap();
+        let chromosome = words.get(0).unwrap().clone();
+        let locus = words.get(1).unwrap().clone();
+        let centi_morgan = words.get(2).unwrap().parse::<f64>().unwrap();
 
-    let skip_n = if header.has_cm { 4 } else { 3 };
-    let mega_basepair = if header.has_cm {
-        words.get(3).map(|s| s.parse::<f64>().unwrap())
-    } else {
-        None
-    };
-
-    let geno_ref = |s| {
-        let mat = metadata.maternal.as_str();
-        let pat = metadata.paternal.as_str();
-        if s == mat {
-            mat
-        } else if s == pat {
-            pat
+        let skip_n = if header.has_cm { 4 } else { 3 };
+        let mega_basepair = if header.has_cm {
+            words.get(3).map(|s| s.parse::<f64>().unwrap())
         } else {
-            panic!(
-                "Locus {} has a genotype that's neither maternal nor paternal!",
-                locus
-            );
-        }
-    };
+            None
+        };
 
-    let genotypes = words.into_iter().skip(skip_n).map(geno_ref).collect();
+        /*
+         let geno_ref = |s| {
+             let mat = metadata.maternal.as_str();
+             let pat = metadata.paternal.as_str();
+             if s == mat {
+                 mat
+             } else if s == pat {
+                 pat
+             } else {
+                 panic!(
+                     "Locus {} has a genotype that's neither maternal nor paternal!",
+                     locus
+                 );
+             }
+         };
 
-    Some(DatasetLine {
-        chromosome,
-        locus,
-        centi_morgan,
-        mega_basepair,
-        genotypes,
-    })
+         let get_geno = |s| {
+             // match s {
+             //     metadata.maternal.as_str() =>
+             let mat = metadata.maternal.as_str();
+             let pat = metadata.paternal.as_str();
+             if s == mat {
+                 Genotype::Mat
+             } else if s == pat {
+                 Genotype::Pat
+             } else if s == metadata.heterozygous.as_str() {
+                 Genotype::Het
+             } else if s == metadata.unknown.as_str() {
+                 Genotype::Unk
+             } else {
+                 panic!(
+                     "Locus {} has a genotype that's neither maternal nor paternal!",
+                     locus
+                 );
+             }
+         };
+
+        */
+
+        // let genotypes = words.into_iter().skip(skip_n).map(geno_ref).collect();
+        let genotypes = words
+            .into_iter()
+            .skip(skip_n)
+            .map(|s| metadata.parse_genotype(&s))
+            .collect();
+
+        Some(DatasetLine {
+            chromosome,
+            locus,
+            centi_morgan,
+            mega_basepair,
+            genotypes,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -276,17 +356,14 @@ mod tests {
             result
         );
 
-        let parsed = parse_header_line(&header).unwrap();
+        let parsed = DatasetHeader::from_line(&header).unwrap();
 
         assert_eq!(false, parsed.has_cm);
-
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed.strains);
 
-        let header_2 = header_line_2();
-        let parsed_2 = parse_header_line(&header_2).unwrap();
+        let parsed_2 = DatasetHeader::from_line(&header_line_2()).unwrap();
 
         assert_eq!(true, parsed_2.has_cm);
-
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed_2.strains);
     }
 
@@ -297,15 +374,9 @@ mod tests {
 
         assert_eq!(vec!["1", "D1Mit1", "8.3", "B6", "B6", "D", "D"], result);
 
-        let header = parse_header_line(&header_line()).unwrap();
-        let metadata = Metadata {
-            name: String::from("BXD"),
-            maternal: String::from("B6"),
-            paternal: String::from("D"),
-            heterozygous: String::from("H"),
-            unknown: String::from("U"),
-        };
-        let parsed = parse_data_line(&header, &metadata, &line).unwrap();
+        let header = DatasetHeader::from_line(&header_line()).unwrap();
+        let metadata = Metadata::new("BXD", "B6", "D", "riset");
+        let parsed = DatasetLine::from_line(&header, &metadata, &line).unwrap();
 
         assert_eq!(
             DatasetLine {
@@ -328,10 +399,10 @@ mod tests {
             "@mat:B6",
         ];
 
-        assert_eq!(parse_metadata_line(lines[0]), None);
-        assert_eq!(parse_metadata_line(lines[1]), Some(("name", "BXD")));
-        assert_eq!(parse_metadata_line(lines[2]), None);
-        assert_eq!(parse_metadata_line(lines[3]), Some(("mat", "B6")));
+        assert_eq!(Metadata::parse_line(lines[0]), None);
+        assert_eq!(Metadata::parse_line(lines[1]), Some(("name", "BXD")));
+        assert_eq!(Metadata::parse_line(lines[2]), None);
+        assert_eq!(Metadata::parse_line(lines[3]), Some(("mat", "B6")));
     }
 
     #[test]
@@ -354,7 +425,10 @@ mod tests {
         "Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6	BXD8	BXD9	BXD11	BXD12	BXD13	BXD14	BXD15	BXD16	BXD18	BXD19	BXD20	BXD21	BXD22	BXD23	BXD24	BXD25	BXD27	BXD28	BXD29	BXD30	BXD31	BXD32	BXD33	BXD34	BXD35	BXD36	BXD37	BXD38	BXD39	BXD40	BXD42",
             ];
 
-        println!("{:?}", parse_metadata_lines(lines));
+        assert_eq!(
+            Metadata::from_lines(lines),
+            Metadata::new("BXD", "B6", "D", "riset")
+        );
     }
 
 }
