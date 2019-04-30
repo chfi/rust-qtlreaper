@@ -44,7 +44,7 @@ about the QTL mapping algorithm.
 */
 
 fn main() {
-    let f = File::open("examples/data/input/BXD.txt").unwrap();
+    let f = File::open("examples/data/input/BXD_Test.txt").unwrap();
     let reader = BufReader::new(f);
 
     let mut lines = reader.lines();
@@ -75,4 +75,16 @@ fn main() {
     println!("metadata: {:?}", metadata);
 
     println!("header: {:?}", header);
+
+    let strains = header.clone().unwrap().strains.clone();
+
+    let mut dataset = geneobject::Dataset::new(metadata, header.unwrap().clone(), strains);
+
+    for line in lines {
+        dataset.parse_locus(&line.unwrap());
+    }
+
+    for chr in dataset.chromosomes() {
+        println!("{:?}", chr);
+    }
 }

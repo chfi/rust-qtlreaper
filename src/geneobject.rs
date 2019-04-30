@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
@@ -7,14 +8,56 @@ use std::path::Path;
 
 #[derive(Debug)]
 pub struct Locus {
-    pub name: String,
+    name: String,
     // pub chromosome: Chromosome,
-    pub genotype: f64,
-    pub dominance: f64,
-    pub text: String,
-    pub size: usize,
-    pub centi_morgan: f64,
-    pub mega_basepair: f64,
+    // chromosome: String,
+    dominance: Option<Vec<f64>>,
+    //
+    genotype: Vec<Genotype>,
+
+    // pub text: String,
+    // pub size: usize,
+    centi_morgan: f64,
+    mega_basepair: Option<f64>,
+}
+
+impl Locus {
+    // corresponds to lines 950-1044 in dataset.c
+    fn parse_line(metadata: &Metadata, line: &str) -> (String, Locus) {
+        // Example locus is: "1	D1Mit1	8.3	B6	B6	D	D"
+        // where the first three columns are chromosome, name, cM;
+        // remaining columns are the genotypes
+
+        let words: Vec<_> = line.split_terminator('\t').collect();
+
+        // let chromosome = String::from(words.next().unwrap());
+        let chromosome = String::from(words[0]);
+        let name = String::from(words[1]);
+        let centi_morgan = words[2].parse::<f64>().unwrap();
+
+        // let name = String::from(words.next().unwrap());
+
+        let genotype = words[3..]
+            .iter()
+            .map(|g| metadata.parse_genotype(g))
+            .collect();
+
+        (
+            chromosome,
+            Locus {
+                name,
+                centi_morgan,
+                genotype,
+                // additive: None,
+                dominance: None,
+                mega_basepair: None,
+            },
+        )
+    }
+
+    pub fn cm(&self) -> f64 {
+        self.centi_morgan
+    }
 }
 
 #[derive(Debug)]
@@ -24,6 +67,11 @@ pub struct Chromosome {
     pub size: usize,
 }
 
+impl Chromosome {
+    // Corresponds to lines 1071-1152 in dataset.c
+    fn estimate_unknown(&mut self) {}
+}
+
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub enum Genotype {
     Mat,
@@ -31,6 +79,26 @@ pub enum Genotype {
     Het,
     Unk,
 }
+
+/*
+struct GenotypeMap {
+    maternal: String,
+    paternal: String,
+    heterozygous: String, // defaults to "H"
+    unknown: String,      // defaults to "U"
+}
+
+pub struct Header {
+    pub name: String,
+    genotype_map: GenotypeMap,
+    pub dataset_type: String,
+    has_cm: bool,
+    strains: Vec<String>,
+}
+
+impl Header {
+}
+*/
 
 #[derive(Debug, PartialEq)]
 pub struct Metadata {
@@ -64,7 +132,7 @@ impl Metadata {
         } else if geno == self.unknown.as_str() {
             Genotype::Unk
         } else {
-            panic!("Failed to parse genotype: {}", geno);
+            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
         }
     }
 
@@ -129,18 +197,78 @@ impl Metadata {
 
 #[derive(Debug)]
 pub struct Dataset {
-    pub name: String,
-    pub maternal: String,
-    pub paternal: String,
-    pub dataset_type: String,
-    pub chromosome: Vec<Chromosome>,
+    // pub maternal: String,
+    // pub paternal: String,
+    // pub dataset_type: String,
+    // chromosomes: Vec<Chromosome>,
+    metadata: Metadata,
+    header: DatasetHeader,
+    chromosomes: HashMap<String, Vec<Locus>>,
     // pub size: usize,
     // pub nprgy: usize,
+    strains: Vec<String>,
     // pub prgy: Vec<String>,
     // pub parentsf1: bool,
     // pub dominance: bool,
     // pub mega_basepair: usize,
     // pub interval: i32,
+}
+
+impl Dataset {
+    // Corresponds to the outer loop in lines 941-1045,
+    // and the loop at lines 1050-1069, in dataset.c
+    // fn parse_dataset(metadata: &Metadata, header: &DatasetHeader) -> Dataset {
+
+    // partition the dataset
+    // }
+
+    pub fn new(metadata: Metadata, header: DatasetHeader, strains: Vec<String>) -> Dataset {
+        Dataset {
+            metadata,
+            header,
+            strains,
+            chromosomes: HashMap::new(),
+        }
+    }
+
+    pub fn chromosomes(&self) -> &HashMap<String, Vec<Locus>> {
+        &self.chromosomes
+    }
+
+    pub fn show_self(&self) {
+        let ks = self.chromosomes.keys();
+        for k in ks {
+            println!("{}", k);
+        }
+    }
+
+    // parse a line with a locus, adding it to the corresponding
+    // chromosome in the dataset. NOTE: we assume the input data is
+    // sorted by chromosome and marker position!
+    pub fn parse_locus(&mut self, line: &str) {
+        let (chr, locus) = Locus::parse_line(&self.metadata, line);
+
+        let mut loci = self.chromosomes.entry(chr).or_insert_with(|| Vec::new());
+
+        loci.push(locus);
+
+        // match self.chromosomes.get_mut(&chr) {
+        //     None => self.chromosomes.insert(chr, vec![locus]),
+        //     Some(loci) => loci.push(locus),
+        // }
+        // match self.chromosomes.get_mut(&chr) {
+        //     None =>
+        //     Some(loci) => loci.push(locus);,
+        // }
+        // self.chromosomes
+        //     .entry(chr)
+        //     .
+        //     .or_insert_with(|loci| loci.push(locus));
+    }
+
+    // pub fn parse_loci(&mut self, lines: Vec<&str>) {
+
+    // }
 }
 
 #[derive(Debug)]
@@ -222,10 +350,10 @@ fn parse_tab_delim_line(line: &str) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DatasetHeader {
     has_cm: bool,
-    strains: Vec<String>,
+    pub strains: Vec<String>,
 }
 
 impl DatasetHeader {
