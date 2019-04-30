@@ -1,0 +1,24 @@
+#this is a test file, it should be tab-delimited
+#the first three/four columns should be "Chr, Locus, cM, [Mb]" (case sensitive)
+#please save as Unix format text file.
+#comment line always start with a '#'
+#type riset or intercross
+#@type:riset
+@type:intercross
+@name:BXD
+#abbreviation of maternal or paternal parents
+@mat:B6
+@pat:D
+#heterozygous , optional, default is "H"
+@het:H
+#Unknown , optional, default is "U"
+@unk:U
+Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6
+1	D1Mit1	8.3	B6	B6	D	D
+1	D1Mit294	8.6	B6	B6	D	D
+1	D1Mit430	10	B6	B6	H	D
+1	D1Mit231	12	D	B6	B6	D
+2	D2Mit367	27	B6	B6	D	B6
+2	D2Mit241	31	D	U	U	B6
+2	D2Mit156	32	D	B6	D	B6
+2	D2Mit205	37.5	D	D	D	B6
