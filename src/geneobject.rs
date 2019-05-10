@@ -25,46 +25,48 @@ impl UnknownIntervals {
     fn empty(n: usize) -> UnknownIntervals {
         UnknownIntervals(Vec::with_capacity(n))
     }
-
-    // fn step(interval_starts: Vec<Option<usize>>, genotype: Vec<(Genotype, f64)>) -> Option<{
-
-    // }
 }
 
-fn step_unknown_intervals(
-    state: (Option<usize>, Vec<Range<usize>>),
-    // current: Option<usize>,
-    // intervals: Vec<Range<usize>>,
+/// Steps through a list of genotypes (corresponding to contiguous
+/// loci for one strain), building up a list of ranges of missing data
+fn step_unknown_intervals_mut(
+    state: &mut (Option<usize>, Vec<Range<usize>>),
     next: (usize, Genotype),
-) -> (Option<usize>, Vec<Range<usize>>) {
+) {
     let (ix, geno) = next;
-    // let (current, mut intervals) = state;
-    let current = state.0;
-    let mut intervals = state.1;
 
     if let Genotype::Unk = geno {
-        match current {
-            None => (Some(ix), intervals),
-            Some(start) => {
-                // intervals.push(start..ix + 1);
-                (Some(start), intervals)
-            }
+        match state.0 {
+            None => state.0 = Some(ix),
+            Some(start) => state.0 = Some(start),
         }
     } else {
-        if let Some(start) = current {
-            intervals.push(start..ix);
-            (None, intervals)
-        } else {
-            // match current {
-            //     None => ,
-            //     Some(start) => {
-            //         intervals.push(start..ix + 1);
-            //         (None, intervals)
-            //     }
-            // }
-            (current, intervals)
+        if let Some(start) = state.0 {
+            state.1.push(start..ix);
+            state.0 = None;
         }
-        // state
+    }
+}
+
+/// Steps through a list of genotypes per strain, building up a list of ranges of missing data for each strain
+fn step_many_unknown_intervals_mut(
+    state: &mut (Vec<Option<usize>>, Vec<Vec<Range<usize>>>),
+    next: (usize, &[Genotype]),
+) {
+    let (ix, genotype) = next;
+
+    for (strain_ix, geno) in genotype.iter().enumerate() {
+        if let Genotype::Unk = geno {
+            match state.0[strain_ix] {
+                None => state.0[strain_ix] = Some(ix),
+                Some(start) => state.0[strain_ix] = Some(start),
+            }
+        } else {
+            if let Some(start) = state.0[strain_ix] {
+                state.1[strain_ix].push(start..ix);
+                state.0[strain_ix] = None;
+            }
+        }
     }
 }
 
@@ -680,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn it_can_find_unknown_intervals() {
+    fn it_can_find_unknown_intervals_in_one_strain() {
         let geno1 = vec![
             (Genotype::Mat, -1.0),
             (Genotype::Unk, 99.0),
@@ -705,31 +707,49 @@ mod tests {
         ];
 
         let mut state = (None, Vec::new());
-        for (ix, (geno, _)) in geno1.iter().enumerate() {
-            println!("ix: {}", ix);
-            state = step_unknown_intervals(state, (ix, *geno));
-            println!("{:?}", state);
-        }
+        geno1.iter().enumerate().for_each(|(ix, (geno, _))| {
+            step_unknown_intervals_mut(&mut state, (ix, *geno));
+            // println!("{} - {:?}", ix, state);
+        });
 
         assert_eq!(state.1, vec![1..3]);
 
         state = (None, Vec::new());
-        for (ix, (geno, _)) in geno2.iter().enumerate() {
-            println!("ix: {}", ix);
-            state = step_unknown_intervals(state, (ix, *geno));
-            println!("{:?}", state);
-        }
+        geno2.iter().enumerate().for_each(|(ix, (geno, _))| {
+            step_unknown_intervals_mut(&mut state, (ix, *geno));
+            // println!("{} - {:?}", ix, state);
+        });
 
         assert_eq!(state.1, vec![2..4]);
 
         state = (None, Vec::new());
-        for (ix, (geno, _)) in geno3.iter().enumerate() {
-            println!("ix: {}", ix);
-            state = step_unknown_intervals(state, (ix, *geno));
-            println!("{:?}", state);
-        }
+        geno3.iter().enumerate().for_each(|(ix, (geno, _))| {
+            step_unknown_intervals_mut(&mut state, (ix, *geno));
+            // println!("{} - {:?}", ix, state);
+        });
 
         assert_eq!(state.1, vec![1..2, 3..5]);
+    }
+
+    #[test]
+    fn it_can_find_unknown_intervals_in_many_strains() {
+        let genos = vec![
+            vec![Genotype::Mat, Genotype::Mat, Genotype::Pat],
+            vec![Genotype::Unk, Genotype::Pat, Genotype::Unk],
+            vec![Genotype::Unk, Genotype::Unk, Genotype::Pat],
+            vec![Genotype::Unk, Genotype::Unk, Genotype::Unk],
+            vec![Genotype::Pat, Genotype::Mat, Genotype::Unk],
+            vec![Genotype::Pat, Genotype::Mat, Genotype::Mat],
+        ];
+
+        let strains = 3;
+        let mut state = (vec![None; strains], vec![Vec::new(); strains]);
+
+        for (geno_ix, genos_line) in genos.iter().enumerate() {
+            step_many_unknown_intervals_mut(&mut state, (geno_ix, &genos_line));
+        }
+
+        assert_eq!(state.1, vec![vec![1..4], vec![2..4], vec![1..2, 3..5]]);
     }
 
     /*
