@@ -19,7 +19,12 @@ struct UnknownIntervals(Vec<Vec<Range<usize>>>);
 
 impl Locus {
     // corresponds to lines 950-1044 in dataset.c
-    fn parse_line(metadata: &Metadata, dominance: bool, line: &str) -> (String, Locus) {
+    fn parse_line(
+        metadata: &Metadata,
+        header: &DatasetHeader,
+        dominance: bool,
+        line: &str,
+    ) -> (String, Locus) {
         // Example locus is: "1	D1Mit1	8.3	B6	B6	D	D"
         // where the first three columns are chromosome, name, cM;
         // remaining columns are the genotypes
@@ -31,14 +36,16 @@ impl Locus {
         let name = String::from(words[1]);
         let centi_morgan = words[2].parse::<f64>().unwrap();
 
-        let genotype = words[3..]
+        let range = if header.has_mb { 4.. } else { 3.. };
+
+        let genotype = words[range.clone()]
             .iter()
             .map(|g| metadata.parse_genotype(g))
             .collect();
 
         let dominance = if dominance {
             Some(
-                words[3..]
+                words[range]
                     .iter()
                     .map(|g| metadata.parse_dominance(g))
                     .collect(),
@@ -358,7 +365,7 @@ impl Dataset {
     // chromosome in the dataset. NOTE: we assume the input data is
     // sorted by chromosome and marker position!
     fn parse_locus(&mut self, line: &str) {
-        let (chr, locus) = Locus::parse_line(&self.metadata, self.dominance, line);
+        let (chr, locus) = Locus::parse_line(&self.metadata, &self.header, self.dominance, line);
 
         let loci = self.chromosomes.entry(chr).or_insert_with(|| Vec::new());
 
@@ -443,7 +450,7 @@ fn parse_tab_delim_line(line: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 pub struct DatasetHeader {
-    has_cm: bool,
+    has_mb: bool,
     pub strains: Vec<String>,
 }
 
@@ -451,12 +458,12 @@ impl DatasetHeader {
     fn from_line(line: &str) -> Option<DatasetHeader> {
         let header_words = parse_tab_delim_line(&line);
 
-        let has_cm = match header_words.get(3) {
+        let has_mb = match header_words.get(3) {
             None => panic!("Dataset header had less than four elements; no strains!"),
             Some(w) => w == "Mb",
         };
 
-        let skip_n = if has_cm { 4 } else { 3 };
+        let skip_n = if has_mb { 4 } else { 3 };
 
         let strains = header_words
             .into_iter()
@@ -464,7 +471,7 @@ impl DatasetHeader {
             .map(|s| String::from(s))
             .collect();
 
-        Some(DatasetHeader { has_cm, strains })
+        Some(DatasetHeader { has_mb, strains })
     }
 }
 
@@ -492,12 +499,12 @@ mod tests {
 
         let parsed = DatasetHeader::from_line(&header).unwrap();
 
-        assert_eq!(false, parsed.has_cm);
+        assert_eq!(false, parsed.has_mb);
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed.strains);
 
         let parsed_2 = DatasetHeader::from_line(&header_line_2()).unwrap();
 
-        assert_eq!(true, parsed_2.has_cm);
+        assert_eq!(true, parsed_2.has_mb);
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed_2.strains);
     }
 
