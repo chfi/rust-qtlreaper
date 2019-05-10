@@ -84,7 +84,23 @@ fn main() {
         dataset.parse_locus(&line.unwrap());
     }
 
-    for chr in dataset.chromosomes() {
-        println!("{:?}", chr);
+    println!("--------------");
+    for (chr, loci) in dataset.chromosomes() {
+        println!("Chromosome {}", chr);
+        for locus in loci {
+            println!("name: {}\n{:?}\n-------", locus.name, locus.genotype);
+        }
+        println!("----------------");
+    }
+
+    dataset.estimate_unknown();
+
+    println!("--------------");
+    for (chr, loci) in dataset.chromosomes() {
+        println!("Chromosome {}", chr);
+        for locus in loci {
+            println!("name: {}\n{:?}\n-------", locus.name, locus.genotype);
+        }
+        println!("----------------");
     }
 }
