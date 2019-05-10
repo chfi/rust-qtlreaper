@@ -1,15 +1,8 @@
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::BufReader;
 use std::ops::Range;
-use std::path::Path;
-use std::rc::Rc;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Locus {
     pub name: String,
     dominance: Option<Vec<f64>>,
@@ -25,60 +18,6 @@ impl UnknownIntervals {
     fn empty(n: usize) -> UnknownIntervals {
         UnknownIntervals(Vec::with_capacity(n))
     }
-}
-
-/// Steps through a list of genotypes (corresponding to contiguous
-/// loci for one strain), building up a list of ranges of missing data
-fn step_unknown_intervals_mut(
-    state: &mut (Option<usize>, Vec<Range<usize>>),
-    next: (usize, Genotype),
-) {
-    let (ix, geno) = next;
-
-    if let Genotype::Unk = geno {
-        match state.0 {
-            None => state.0 = Some(ix),
-            Some(start) => state.0 = Some(start),
-        }
-    } else {
-        if let Some(start) = state.0 {
-            state.1.push(start..ix);
-            state.0 = None;
-        }
-    }
-}
-
-/// Steps through a list of genotypes per strain, building up a list of ranges of missing data for each strain
-fn step_many_unknown_intervals_mut(
-    state: &mut (Vec<Option<usize>>, Vec<Vec<Range<usize>>>),
-    next: (usize, &[(Genotype, f64)]),
-) {
-    let (ix, genotype) = next;
-
-    for (strain_ix, (geno, _)) in genotype.iter().enumerate() {
-        if let Genotype::Unk = geno {
-            match state.0[strain_ix] {
-                None => state.0[strain_ix] = Some(ix),
-                Some(start) => state.0[strain_ix] = Some(start),
-            }
-        } else {
-            if let Some(start) = state.0[strain_ix] {
-                state.1[strain_ix].push(start..ix);
-                state.0[strain_ix] = None;
-            }
-        }
-    }
-}
-
-pub fn loci_find_unknown_intervals(loci: &[Locus]) -> Vec<Vec<Range<usize>>> {
-    let n_strains = loci.first().unwrap().genotype.len();
-    let mut state = (vec![None; n_strains], vec![Vec::new(); n_strains]);
-
-    for (locus_ix, locus) in loci.iter().enumerate() {
-        step_many_unknown_intervals_mut(&mut state, (locus_ix, &locus.genotype))
-    }
-
-    state.1
 }
 
 impl Locus {
@@ -112,17 +51,86 @@ impl Locus {
         )
     }
 
-    pub fn cm(&self) -> f64 {
-        self.centi_morgan
+    /// Steps through a list of genotypes per strain, building up a list of ranges of missing data for each strain
+    fn step_many_unknown_intervals_mut(
+        state: &mut (Vec<Option<usize>>, Vec<Vec<Range<usize>>>),
+        next: (usize, &[(Genotype, f64)]),
+    ) {
+        let (ix, genotype) = next;
+
+        for (strain_ix, (geno, _)) in genotype.iter().enumerate() {
+            if let Genotype::Unk = geno {
+                match state.0[strain_ix] {
+                    None => state.0[strain_ix] = Some(ix),
+                    Some(start) => state.0[strain_ix] = Some(start),
+                }
+            } else {
+                if let Some(start) = state.0[strain_ix] {
+                    state.1[strain_ix].push(start..ix);
+                    state.0[strain_ix] = None;
+                }
+            }
+        }
     }
 
-    fn unknown_data_intervals(strains: &[String], loci: &[Locus]) -> UnknownIntervals {
-        // let n_strains = strains.len();
-        // the current state tracks the current left-hand index for each strain (if the start of an unknown interval has been found), and the unknown intervals so far.
-        let mut state: (Vec<Option<usize>>, UnknownIntervals) =
-            (Vec::new(), UnknownIntervals::empty(strains.len()));
+    fn find_unknown_intervals(loci: &[Locus]) -> UnknownIntervals {
+        let n_strains = loci.first().unwrap().genotype.len();
+        let mut state = (vec![None; n_strains], vec![Vec::new(); n_strains]);
 
-        state.1
+        for (locus_ix, locus) in loci.iter().enumerate() {
+            Self::step_many_unknown_intervals_mut(&mut state, (locus_ix, &locus.genotype))
+        }
+
+        UnknownIntervals(state.1)
+    }
+
+    fn estimate_unknown_genotypes(loci: &mut [Locus], intervals: UnknownIntervals) {
+        for (strain_ix, strain) in intervals.0.iter().enumerate() {
+            for range in strain {
+                for locus_ix in range.clone() {
+                    let prev = &loci[range.start - 1];
+                    let next = &loci[range.end];
+                    let locus = &loci[locus_ix];
+                    let rec_1 = (locus.cm() - prev.cm()) / 100.0;
+                    let rec_2 = (next.cm() - locus.cm()) / 100.0;
+                    let rec_0 = (next.cm() - prev.cm()) / 100.0;
+
+                    let f1 = (1.0 - f64::exp(-2.0 * rec_1)) / 2.0;
+                    let f2 = (1.0 - f64::exp(-2.0 * rec_2)) / 2.0;
+                    let f0 = (1.0 - f64::exp(-2.0 * rec_0)) / 2.0;
+
+                    // NOTE make sure the parens act the same as the C version!!
+                    let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
+                    let r_1 = f1 * (1.0 - f2) / f0;
+                    let r_2 = f2 * (1.0 - f1) / f0;
+                    let r_3 = f1 * f2 / (1.0 - f0);
+
+                    let (prev_geno, _) = prev.genotype[strain_ix];
+                    let (next_geno, _) = next.genotype[strain_ix];
+
+                    // use Genotype::*;
+
+                    let new_genotype = match (prev_geno, next_geno) {
+                        (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
+                        (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
+                        (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
+                        (Genotype::Mat, Genotype::Het) => r_1 - r_0,
+                        (Genotype::Het, Genotype::Het) => 0.0,
+                        (Genotype::Pat, Genotype::Het) => r_0 - r_1,
+                        (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
+                        (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
+                        (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
+                        _ => panic!("Genotype was unknown when it shouldn't be!"),
+                    };
+
+                    loci[locus_ix].genotype[strain_ix].1 = new_genotype
+                }
+            }
+        }
+    }
+
+    pub fn cm(&self) -> f64 {
+        self.centi_morgan
     }
 }
 
@@ -130,7 +138,6 @@ impl Locus {
 pub struct Chromosome {
     pub name: String,
     pub loci: Vec<Locus>,
-    pub size: usize,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -143,12 +150,12 @@ pub enum Genotype {
 
 #[derive(Debug, PartialEq)]
 pub struct Metadata {
-    pub name: String,
-    pub maternal: String,
-    pub paternal: String,
-    pub dataset_type: String,
-    pub heterozygous: String, // defaults to "H"
-    pub unknown: String,      // defaults to "U"
+    name: String,
+    maternal: String,
+    paternal: String,
+    dataset_type: String,
+    heterozygous: String, // defaults to "H"
+    unknown: String,      // defaults to "U"
 }
 
 impl Metadata {
@@ -245,13 +252,6 @@ pub struct Dataset {
 }
 
 impl Dataset {
-    // Corresponds to the outer loop in lines 941-1045,
-    // and the loop at lines 1050-1069, in dataset.c
-    // fn parse_dataset(metadata: &Metadata, header: &DatasetHeader) -> Dataset {
-
-    // partition the dataset
-    // }
-
     pub fn new(metadata: Metadata, header: DatasetHeader, strains: Vec<String>) -> Dataset {
         Dataset {
             metadata,
@@ -265,91 +265,6 @@ impl Dataset {
         &self.chromosomes
     }
 
-    fn strain_ix(&self, strain: &str) -> Option<usize> {
-        self.strains.iter().position(|s| s == &strain)
-    }
-
-    pub fn show_self(&self) {
-        let ks = self.chromosomes.keys();
-        for k in ks {
-            println!("{}", k);
-        }
-    }
-
-    // fn strain_genotype(&mut self, strain: &str) -> Vec<(String, String, (Genotype, f64))> {
-    fn strain_genotype(&mut self, strain: &str) -> HashMap<String, Vec<(Genotype, f64)>> {
-        let strain_ix = match self.strains.iter().position(|s| s == &strain) {
-            None => panic!("Tried to find genotype for nonexistent strain {}", strain),
-            Some(s) => s,
-        };
-
-        let mut strain_chromosomes = HashMap::new();
-
-        for (chr, loci) in self.chromosomes.iter() {
-            // let (chr, locus) = Locus::parse_line(&self.metadata, line);
-            let strain_loci = loci.iter().map(|locus| locus.genotype[strain_ix]).collect();
-
-            strain_chromosomes.insert(chr.to_string(), strain_loci);
-        }
-
-        strain_chromosomes
-    }
-
-    /*
-    // returns the previous and next known loci's genotype and position in centimorgan
-    fn adj_known_loci(
-        &self,
-        chromosome: &str,
-        locus_ix: usize,
-        strain_ix: usize,
-        // strain: &str,
-    ) -> ((Genotype, f64), (Genotype, f64)) {
-        // let (strain_ix, _) = self
-        //     .strains
-        //     .iter()
-        //     .enumerate()
-        //     .find(|(_, s)| s == &strain)
-        //     .unwrap();
-
-        let loci = self.chromosomes.get(chromosome).unwrap();
-
-        let find_adj_known = |step: i32| {
-            let mut ix = (locus_ix as i32) + step;
-            loop {
-                let (geno, _val) = &loci[ix as usize].genotype[strain_ix];
-                if *geno != Genotype::Unk {
-                    return ix as usize;
-                } else {
-                    ix += step;
-                }
-            }
-        };
-
-        let find_adj_known_2 = |step: i32| {
-            let mut ix = (locus_ix as i32) + step;
-            loop {
-                let (geno, _val) = &loci[ix as usize].genotype[strain_ix];
-                if *geno != Genotype::Unk {
-                    let loc = &loci[ix as usize];
-                    let (adj_geno, _) = loc.genotype[strain_ix];
-                    let cm = loc.cm();
-                    return (adj_geno, cm);
-                } else {
-                    ix += step;
-                }
-            }
-        };
-
-        let prev = &loci[find_adj_known(-1)];
-        let (prev_geno, _) = prev.genotype[strain_ix];
-
-        let next = &loci[find_adj_known(1)];
-        let (next_geno, _) = next.genotype[strain_ix];
-
-        ((prev_geno, prev.cm()), (next_geno, next.cm()))
-    }
-    */
-
     // parse a line with a locus, adding it to the corresponding
     // chromosome in the dataset. NOTE: we assume the input data is
     // sorted by chromosome and marker position!
@@ -359,24 +274,7 @@ impl Dataset {
         let loci = self.chromosomes.entry(chr).or_insert_with(|| Vec::new());
 
         loci.push(locus);
-
-        // match self.chromosomes.get_mut(&chr) {
-        //     None => self.chromosomes.insert(chr, vec![locus]),
-        //     Some(loci) => loci.push(locus),
-        // }
-        // match self.chromosomes.get_mut(&chr) {
-        //     None =>
-        //     Some(loci) => loci.push(locus);,
-        // }
-        // self.chromosomes
-        //     .entry(chr)
-        //     .
-        //     .or_insert_with(|loci| loci.push(locus));
     }
-
-    // pub fn parse_loci(&mut self, lines: Vec<&str>) {
-
-    // }
 
     // Corresponds to lines 1071-1152 in dataset.c
     pub fn estimate_unknown(&mut self) {
@@ -402,106 +300,15 @@ impl Dataset {
             replace_genotype(loci.last_mut());
         }
 
-        // then, for each strain,
-        for (strain_ix, strain) in self.strains.iter().enumerate() {
-            // walk through the loci, e
+        for (_chr, loci) in self.chromosomes.iter_mut() {
+            // then, for each chromosome, construct the intervals of
+            // unknown genotypes
+            let unk = Locus::find_unknown_intervals(loci);
 
-            for (chr, loci) in self.chromosomes.iter() {}
+            // ... and use those intervals to estimate the
+            // missing genotypes
+            Locus::estimate_unknown_genotypes(loci, unk);
         }
-
-        ///////// OLD
-
-        // then walk through each locus, estimating the value for each remaining "Unknown" case
-
-        /*
-                    m = k-1;
-                    while ((m>=0) && (((Locus *)(cptr->loci[m]))->txtstr[j] == GENOSYMBOL[3]))
-                      m--;
-                    n = k+1;
-                    while ( (n<=cptr->size) && (((Locus *)(cptr->loci[n]))->txtstr[j] == GENOSYMBOL[3]) )
-                      n++;
-        */
-        // these closures correspond to the while-loops in lines 1077-1082 (above block comment)
-        // `locus_ix` is the initial locus index
-        // `geno_strain` is the index into the `genotype` vec; it corresponds to a given strain
-        let find_adj_known = |step: i32, loci: &Vec<Locus>, locus_ix: usize, geno_strain: usize| {
-            let mut ix = (locus_ix as i32) + step;
-            loop {
-                let (geno, _val) = loci[ix as usize].genotype[geno_strain];
-                if geno != Genotype::Unk {
-                    return ix as usize;
-                } else {
-                    ix += step;
-                }
-            }
-        };
-
-        /*
-           Rewrite this whole loop (and probably the struct, really)
-
-           Might need to use Rc or RefCell, though I have a feeling
-           that just thinking it through will be enough.
-        */
-        /*
-        for (chr, loci) in self.chromosomes.iter() {
-            for (locus_ix, locus) in loci.iter_mut().enumerate() {
-                for (geno_strain, (geno, val)) in locus.genotype.clone().iter().enumerate() {
-                    if *geno == Genotype::Unk {
-                        let prev_ix = find_adj_known(-1, &loci, locus_ix, geno_strain);
-                        let next_ix = find_adj_known(1, &loci, locus_ix, geno_strain);
-
-                        let prev = &loci[prev_ix];
-                        let next = &loci[next_ix];
-
-                        /*
-                        println!("For {}, {}", locus.name, self.strains[geno_strain]);
-                        println!("Prev\n{:?}\n", prev);
-                        println!("Next\n{:?}\n\n", next);
-                        */
-        let ((prev_geno, prev_cm), (next_geno, next_cm)) =
-        self.adj_known_loci(chr, locus_ix, geno_strain);
-
-        let rec_1 = (locus.cm() - prev.cm()) / 100.0;
-        let rec_2 = (next.cm() - locus.cm()) / 100.0;
-        let rec_0 = (next.cm() - prev.cm()) / 100.0;
-
-        let f1 = (1.0 - f64::exp(-2.0 * rec_1)) / 2.0;
-        let f2 = (1.0 - f64::exp(-2.0 * rec_2)) / 2.0;
-        let f0 = (1.0 - f64::exp(-2.0 * rec_0)) / 2.0;
-
-        // NOTE make sure the parens act the same as the C version!!
-        let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
-        let r_1 = f1 * (1.0 - f2) / f0;
-        let r_2 = f2 * (1.0 - f1) / f0;
-        let r_3 = f1 * f2 / (1.0 - f0);
-
-        let (prev_geno, _) = prev.genotype[geno_strain];
-        let (next_geno, _) = next.genotype[geno_strain];
-
-        // use Genotype::*;
-
-        let new_genotype = match (prev_geno, next_geno) {
-        (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
-        (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
-        (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
-        (Genotype::Mat, Genotype::Het) => r_1 - r_0,
-        (Genotype::Het, Genotype::Het) => 0.0,
-        (Genotype::Pat, Genotype::Het) => r_0 - r_1,
-        (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
-        (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
-        (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
-        _ => panic!("Genotype was unknown when it shouldn't be!"),
-        };
-
-        // locus.genotype[geno_strain] = (*geno, new_genotype);
-        // *val = new_genotype;
-
-        // match (prev.genotype[geno_strain]._1, next.genotype[geno_strain]._1) {}
-        }
-        }
-        }
-        }
-         */
     }
 }
 
@@ -512,23 +319,6 @@ pub struct QTL {
     pub dominance: f64,
     pub locus: Locus,
 }
-
-// this could work better as a hashmap, maybe
-// or use a hashmap-like interface
-// or maybe look like { name: String, values: Vec<(String, f64)>
-pub struct Trait {
-    pub name: String,
-    pub values: Vec<(String, f64)>,
-    // pub strains: Vec<String>,
-    // pub values: Vec<f64>,
-}
-
-// pub struct Traits {
-
-// impl Locus {
-//     pub fn new() -> Locus {
-//     };
-// }
 
 impl QTL {
     pub fn new(locus: Locus, lrs: f64, additive: f64, dominance: f64) -> QTL {
@@ -626,31 +416,6 @@ mod tests {
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed_2.strains);
     }
 
-    /*
-    #[test]
-    fn it_can_parse_data_lines() {
-        let line = data_line1();
-        let result = parse_tab_delim_line(&line);
-
-        assert_eq!(vec!["1", "D1Mit1", "8.3", "B6", "B6", "D", "D"], result);
-
-        let header = DatasetHeader::from_line(&header_line()).unwrap();
-        let metadata = Metadata::new("BXD", "B6", "D", "riset");
-        let parsed = DatasetLine::from_line(&header, &metadata, &line).unwrap();
-
-        assert_eq!(
-            DatasetLine {
-                chromosome: String::from("1"),
-                locus: String::from("D1Mit1"),
-                centi_morgan: 8.3,
-                mega_basepair: None,
-                genotypes: vec!["B6", "B6", "D", "D"],
-            },
-            parsed
-        );
-    }
-    */
-
     #[test]
     fn it_can_parse_metadata_lines() {
         let lines = vec![
@@ -693,56 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn it_can_find_unknown_intervals_in_one_strain() {
-        let geno1 = vec![
-            (Genotype::Mat, -1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Pat, 1.0),
-        ];
-        let geno2 = vec![
-            (Genotype::Mat, -1.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Mat, -1.0),
-        ];
-        let geno3 = vec![
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Mat, -1.0),
-        ];
-
-        let mut state = (None, Vec::new());
-        geno1.iter().enumerate().for_each(|(ix, (geno, _))| {
-            step_unknown_intervals_mut(&mut state, (ix, *geno));
-            // println!("{} - {:?}", ix, state);
-        });
-
-        assert_eq!(state.1, vec![1..3]);
-
-        state = (None, Vec::new());
-        geno2.iter().enumerate().for_each(|(ix, (geno, _))| {
-            step_unknown_intervals_mut(&mut state, (ix, *geno));
-            // println!("{} - {:?}", ix, state);
-        });
-
-        assert_eq!(state.1, vec![2..4]);
-
-        state = (None, Vec::new());
-        geno3.iter().enumerate().for_each(|(ix, (geno, _))| {
-            step_unknown_intervals_mut(&mut state, (ix, *geno));
-            // println!("{} - {:?}", ix, state);
-        });
-
-        assert_eq!(state.1, vec![1..2, 3..5]);
-    }
-
-    #[test]
     fn it_can_find_unknown_intervals_in_many_strains() {
         let genos = vec![
             vec![
@@ -781,37 +496,48 @@ mod tests {
         let mut state = (vec![None; strains], vec![Vec::new(); strains]);
 
         for (geno_ix, genos_line) in genos.iter().enumerate() {
-            step_many_unknown_intervals_mut(&mut state, (geno_ix, &genos_line));
+            Locus::step_many_unknown_intervals_mut(&mut state, (geno_ix, &genos_line));
         }
 
         assert_eq!(state.1, vec![vec![1..4], vec![2..4], vec![1..2, 3..5]]);
     }
 
-    /*
     #[test]
     fn it_can_estimate_unknown_genotypes() {
         // let mut chromosomes = HashMap::new();
         let strains = vec!["S1".to_string(), "S2".to_string(), "S3".to_string()];
-        let geno1 = vec![
-            (Genotype::Mat, -1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Pat, 1.0),
-        ];
-        let geno2 = vec![
-            (Genotype::Mat, -1.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Mat, -1.0),
-        ];
-        let geno3 = vec![
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Pat, 1.0),
-            (Genotype::Unk, 99.0),
-            (Genotype::Mat, -1.0),
+
+        let genos = vec![
+            vec![
+                (Genotype::Mat, -1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Pat, 1.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Pat, 1.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+                (Genotype::Pat, 1.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Pat, 1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Pat, 1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Mat, -1.0),
+            ],
         ];
 
         let mk_locus = |name, cm, genotype| Locus {
@@ -822,69 +548,77 @@ mod tests {
             mega_basepair: None,
         };
 
-        let loci = vec![
-            mk_locus("Mk1", 1.0, geno1),
-            mk_locus("Mk2", 3.3, geno2),
-            mk_locus("Mk3", 4.1, geno3),
+        let loci_new = vec![
+            mk_locus(
+                "Mk1",
+                10.0,
+                vec![
+                    (Genotype::Mat, -1.0),
+                    (Genotype::Mat, -1.0),
+                    (Genotype::Pat, 1.0),
+                ],
+            ),
+            mk_locus(
+                "Mk2",
+                30.3,
+                vec![
+                    (Genotype::Unk, -0.18523506128077272),
+                    (Genotype::Pat, 1.0),
+                    (Genotype::Unk, 0.9616255554798838),
+                ],
+            ),
+            mk_locus(
+                "Mk3",
+                40.1,
+                vec![
+                    (Genotype::Unk, 0.18906668494617707),
+                    (Genotype::Unk, 0.3421367343627405),
+                    (Genotype::Pat, 1.0),
+                ],
+            ),
+            mk_locus(
+                "Mk4",
+                50.2,
+                vec![
+                    (Genotype::Unk, 0.5826065314914579),
+                    (Genotype::Unk, -0.3223330030526561),
+                    (Genotype::Unk, 0.3223330030526552),
+                ],
+            ),
+            mk_locus(
+                "Mk5",
+                60.3,
+                vec![
+                    (Genotype::Pat, 1.0),
+                    (Genotype::Mat, -1.0),
+                    (Genotype::Unk, -0.34213673436274084),
+                ],
+            ),
+            mk_locus(
+                "Mk6",
+                70.1,
+                vec![
+                    (Genotype::Pat, 1.0),
+                    (Genotype::Mat, -1.0),
+                    (Genotype::Mat, -1.0),
+                ],
+            ),
         ];
 
-        // chromosomes.
+        let mut loci = vec![
+            mk_locus("Mk1", 10.0, genos[0].clone()),
+            mk_locus("Mk2", 30.3, genos[1].clone()),
+            mk_locus("Mk3", 40.1, genos[2].clone()),
+            mk_locus("Mk4", 50.2, genos[3].clone()),
+            mk_locus("Mk5", 60.3, genos[4].clone()),
+            mk_locus("Mk6", 70.1, genos[5].clone()),
+        ];
 
-        // let dataset = Dataset {
-        //     metadata: Metadata::new("test", "B", "D", "test"),
-        //     header: DatasetHeader {
-        //         has_cm: false,
-        //         strains: strains.clone(),
-        //     },
-        //     chromosomes,
-        //     strains: strains.clone(),
-        // };
+        let unk = Locus::find_unknown_intervals(&loci);
+
+        Locus::estimate_unknown_genotypes(&mut loci, unk);
+
+        assert_eq!(loci, loci_new);
     }
-    */
 
 }
-
-/*
-impl Dataset {
-    pub fn read_from_file(self, filename: &str) -> Dataset {
-        let path = Path::new(filename);
-
-        let mut file = match File::open(&path) {
-            Err(why) => panic!(
-                "Couldn't open dataset file {}: {}",
-                path.display(),
-                why.description()
-            ),
-            Ok(file) => file,
-        };
-
-        println!("reaper: parsing {}", filename);
-
-        let mut buf_reader = BufReader::new(file);
-        // let name =
-
-        /*
-        The `name`, `maternal`, `paternal`, and `dataset_type` fields are
-        read from the dataset.
-
-        The `chromosome` field is populated by creating the chromosomes,
-        based on the data read from the file.
-         */
-// pub name: String,
-// pub maternal: String,
-// pub paternal: String,
-// pub dataset_type: String,
-// pub chromosome: Vec<Chromosome>,
-
-// pub size: usize,
-// pub nprgy: usize,
-// pub prgy: Vec<String>,
-// pub parentsf1: bool,
-// pub dominance: bool,
-// pub mega_basepair: usize,
-// pub interval: i32,
-//
-}
-}
-
-*/
