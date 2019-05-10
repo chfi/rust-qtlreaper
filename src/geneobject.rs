@@ -1,5 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq)]
@@ -14,15 +17,9 @@ pub struct Locus {
 /// UnknownIntervals holds a list of ranges of unknown genotypes, per strain
 struct UnknownIntervals(Vec<Vec<Range<usize>>>);
 
-impl UnknownIntervals {
-    fn empty(n: usize) -> UnknownIntervals {
-        UnknownIntervals(Vec::with_capacity(n))
-    }
-}
-
 impl Locus {
     // corresponds to lines 950-1044 in dataset.c
-    fn parse_line(metadata: &Metadata, line: &str) -> (String, Locus) {
+    fn parse_line(metadata: &Metadata, dominance: bool, line: &str) -> (String, Locus) {
         // Example locus is: "1	D1Mit1	8.3	B6	B6	D	D"
         // where the first three columns are chromosome, name, cM;
         // remaining columns are the genotypes
@@ -39,13 +36,24 @@ impl Locus {
             .map(|g| metadata.parse_genotype(g))
             .collect();
 
+        let dominance = if dominance {
+            Some(
+                words[3..]
+                    .iter()
+                    .map(|g| metadata.parse_dominance(g))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
         (
             chromosome,
             Locus {
                 name,
                 centi_morgan,
                 genotype,
-                dominance: None,
+                dominance,
                 mega_basepair: None,
             },
         )
@@ -84,7 +92,11 @@ impl Locus {
         UnknownIntervals(state.1)
     }
 
-    fn estimate_unknown_genotypes(loci: &mut [Locus], intervals: UnknownIntervals) {
+    fn estimate_unknown_genotypes(
+        dominance: bool,
+        loci: &mut [Locus],
+        intervals: UnknownIntervals,
+    ) {
         for (strain_ix, strain) in intervals.0.iter().enumerate() {
             for range in strain {
                 for locus_ix in range.clone() {
@@ -123,6 +135,28 @@ impl Locus {
                         _ => panic!("Genotype was unknown when it shouldn't be!"),
                     };
 
+                    if dominance {
+                        let new_dominance = match (prev_geno, next_geno) {
+                            (Genotype::Mat, Genotype::Mat) => 2.0 * r_0 * r_3,
+                            (Genotype::Het, Genotype::Mat) => r_1 * (r_2 + r_3),
+                            (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
+                            (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
+                            (Genotype::Het, Genotype::Het) => {
+                                let w = ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
+                                1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
+                            }
+                            (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
+                            (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 * r_2,
+                            (Genotype::Het, Genotype::Pat) => r_1 * (r_2 + r_3),
+                            (Genotype::Pat, Genotype::Pat) => 2.0 * r_1 * r_3,
+                            _ => panic!("Genotype was unknown when it shouldn't be!"),
+                        };
+
+                        if let Some(d) = &mut loci[locus_ix].dominance {
+                            d[strain_ix] = new_dominance;
+                        }
+                    }
+
                     loci[locus_ix].genotype[strain_ix].1 = new_genotype
                 }
             }
@@ -149,11 +183,11 @@ pub enum Genotype {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Metadata {
+struct Metadata {
     name: String,
     maternal: String,
     paternal: String,
-    dataset_type: String,
+    dataset_type: String, // "intercross" or "riset"
     heterozygous: String, // defaults to "H"
     unknown: String,      // defaults to "U"
 }
@@ -184,6 +218,20 @@ impl Metadata {
         }
     }
 
+    fn parse_dominance(&self, geno: &str) -> f64 {
+        if geno == self.maternal.as_str() {
+            0.0
+        } else if geno == self.paternal.as_str() {
+            0.0
+        } else if geno == self.heterozygous.as_str() {
+            1.0
+        } else if geno == self.unknown.as_str() {
+            1.0
+        } else {
+            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
+        }
+    }
+
     fn parse_line(line: &str) -> Option<(&str, &str)> {
         if line.starts_with("#") {
             return None;
@@ -201,7 +249,7 @@ impl Metadata {
     }
 
     // panic!s if the provided lines do not contain @name, @mat, and @pat fields
-    pub fn from_lines(lines: Vec<&str>) -> Metadata {
+    fn from_lines(lines: Vec<&str>) -> Metadata {
         let mut name: Option<String> = None;
         let mut mat: Option<String> = None;
         let mut pat: Option<String> = None;
@@ -249,16 +297,57 @@ pub struct Dataset {
     header: DatasetHeader,
     chromosomes: HashMap<String, Vec<Locus>>,
     strains: Vec<String>,
+    dominance: bool, // true if dataset type is "intercross"
 }
 
 impl Dataset {
-    pub fn new(metadata: Metadata, header: DatasetHeader, strains: Vec<String>) -> Dataset {
+    fn new(metadata: Metadata, header: DatasetHeader, strains: Vec<String>) -> Dataset {
+        let dominance = metadata.dataset_type == String::from("intercross");
         Dataset {
             metadata,
             header,
             strains,
             chromosomes: HashMap::new(),
+            dominance,
         }
+    }
+
+    pub fn read_file(path: &str) -> Dataset {
+        let f = File::open(path).expect(&format!("Error opening file {}", path));
+
+        let reader = BufReader::new(f);
+        let mut lines = reader.lines();
+        let mut header = None;
+
+        let mut metadata_lines = vec![];
+
+        loop {
+            match lines.next() {
+                None => panic!("Reached end of file before parsing dataset header"),
+                Some(l) => {
+                    let ll = l.unwrap();
+                    if ll.starts_with("Chr	Locus	cM") {
+                        header = DatasetHeader::from_line(&ll);
+                        break;
+                    } else {
+                        metadata_lines.push(ll);
+                    }
+                }
+            }
+        }
+
+        let metadata = Metadata::from_lines(metadata_lines.iter().map(|s| s.as_str()).collect());
+
+        let strains = header.clone().unwrap().strains.clone();
+
+        let mut dataset = Dataset::new(metadata, header.unwrap().clone(), strains);
+
+        for line in lines {
+            dataset.parse_locus(&line.unwrap());
+        }
+        dataset.estimate_unknown();
+
+        dataset
     }
 
     pub fn chromosomes(&self) -> &HashMap<String, Vec<Locus>> {
@@ -268,8 +357,8 @@ impl Dataset {
     // parse a line with a locus, adding it to the corresponding
     // chromosome in the dataset. NOTE: we assume the input data is
     // sorted by chromosome and marker position!
-    pub fn parse_locus(&mut self, line: &str) {
-        let (chr, locus) = Locus::parse_line(&self.metadata, line);
+    fn parse_locus(&mut self, line: &str) {
+        let (chr, locus) = Locus::parse_line(&self.metadata, self.dominance, line);
 
         let loci = self.chromosomes.entry(chr).or_insert_with(|| Vec::new());
 
@@ -277,7 +366,7 @@ impl Dataset {
     }
 
     // Corresponds to lines 1071-1152 in dataset.c
-    pub fn estimate_unknown(&mut self) {
+    fn estimate_unknown(&mut self) {
         // first replace any cases of "Unknown" in the first and last loci of each chromosome
 
         let replace = |geno: &mut Genotype, val: &mut f64| {
@@ -307,7 +396,7 @@ impl Dataset {
 
             // ... and use those intervals to estimate the
             // missing genotypes
-            Locus::estimate_unknown_genotypes(loci, unk);
+            Locus::estimate_unknown_genotypes(self.dominance, loci, unk);
         }
     }
 }
@@ -359,7 +448,7 @@ pub struct DatasetHeader {
 }
 
 impl DatasetHeader {
-    pub fn from_line(line: &str) -> Option<DatasetHeader> {
+    fn from_line(line: &str) -> Option<DatasetHeader> {
         let header_words = parse_tab_delim_line(&line);
 
         let has_cm = match header_words.get(3) {
@@ -389,10 +478,6 @@ mod tests {
 
     fn header_line_2() -> String {
         String::from("Chr	Locus	cM	Mb	BXD1	BXD2	BXD5	BXD6")
-    }
-
-    fn data_line1() -> String {
-        String::from("1	D1Mit1	8.3	B6	B6	D	D")
     }
 
     #[test]
@@ -616,7 +701,7 @@ mod tests {
 
         let unk = Locus::find_unknown_intervals(&loci);
 
-        Locus::estimate_unknown_genotypes(&mut loci, unk);
+        Locus::estimate_unknown_genotypes(false, &mut loci, unk);
 
         assert_eq!(loci, loci_new);
     }

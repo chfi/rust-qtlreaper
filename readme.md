@@ -4,6 +4,6 @@ A reimplementation of [genenetwork/QTLReaper] in Rust.
 
 ##### TODO
 
-- [ ] Parse input files
+- [X] Parse input files
 - [ ] Implement the simplest type of regression used
 - [ ] Test against QTLReaper output
