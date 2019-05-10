@@ -44,7 +44,7 @@ about the QTL mapping algorithm.
 */
 
 fn main() {
-    let dataset = geneobject::Dataset::read_file("examples/data/input/BXD_Test.txt");
+    let dataset = geneobject::Dataset::read_file("examples/data/input/BXD2.txt");
 
     println!("--------------");
     for (chr, loci) in dataset.chromosomes() {

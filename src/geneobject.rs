@@ -412,12 +412,12 @@ impl Dataset {
 pub struct QTL {
     pub lrs: f64,
     pub additive: f64,
-    pub dominance: f64,
+    pub dominance: Option<f64>,
     pub locus: Locus,
 }
 
 impl QTL {
-    pub fn new(locus: Locus, lrs: f64, additive: f64, dominance: f64) -> QTL {
+    pub fn new(locus: Locus, lrs: f64, additive: f64, dominance: Option<f64>) -> QTL {
         QTL {
             lrs,
             additive,
