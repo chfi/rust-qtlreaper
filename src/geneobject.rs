@@ -51,11 +51,11 @@ fn step_unknown_intervals_mut(
 /// Steps through a list of genotypes per strain, building up a list of ranges of missing data for each strain
 fn step_many_unknown_intervals_mut(
     state: &mut (Vec<Option<usize>>, Vec<Vec<Range<usize>>>),
-    next: (usize, &[Genotype]),
+    next: (usize, &[(Genotype, f64)]),
 ) {
     let (ix, genotype) = next;
 
-    for (strain_ix, geno) in genotype.iter().enumerate() {
+    for (strain_ix, (geno, _)) in genotype.iter().enumerate() {
         if let Genotype::Unk = geno {
             match state.0[strain_ix] {
                 None => state.0[strain_ix] = Some(ix),
@@ -68,6 +68,17 @@ fn step_many_unknown_intervals_mut(
             }
         }
     }
+}
+
+pub fn loci_find_unknown_intervals(loci: &[Locus]) -> Vec<Vec<Range<usize>>> {
+    let n_strains = loci.first().unwrap().genotype.len();
+    let mut state = (vec![None; n_strains], vec![Vec::new(); n_strains]);
+
+    for (locus_ix, locus) in loci.iter().enumerate() {
+        step_many_unknown_intervals_mut(&mut state, (locus_ix, &locus.genotype))
+    }
+
+    state.1
 }
 
 impl Locus {
@@ -734,12 +745,36 @@ mod tests {
     #[test]
     fn it_can_find_unknown_intervals_in_many_strains() {
         let genos = vec![
-            vec![Genotype::Mat, Genotype::Mat, Genotype::Pat],
-            vec![Genotype::Unk, Genotype::Pat, Genotype::Unk],
-            vec![Genotype::Unk, Genotype::Unk, Genotype::Pat],
-            vec![Genotype::Unk, Genotype::Unk, Genotype::Unk],
-            vec![Genotype::Pat, Genotype::Mat, Genotype::Unk],
-            vec![Genotype::Pat, Genotype::Mat, Genotype::Mat],
+            vec![
+                (Genotype::Mat, -1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Pat, 1.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Pat, 1.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+                (Genotype::Pat, 1.0),
+            ],
+            vec![
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Pat, 1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Unk, 99.0),
+            ],
+            vec![
+                (Genotype::Pat, 1.0),
+                (Genotype::Mat, -1.0),
+                (Genotype::Mat, -1.0),
+            ],
         ];
 
         let strains = 3;

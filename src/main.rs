@@ -103,4 +103,12 @@ fn main() {
         }
         println!("----------------");
     }
+
+    println!("--------------");
+    for (chr, loci) in dataset.chromosomes() {
+        println!("Chromosome {}", chr);
+        let ivals = geneobject::loci_find_unknown_intervals(&loci);
+        println!("{:?}", ivals);
+        println!("----------------");
+    }
 }
