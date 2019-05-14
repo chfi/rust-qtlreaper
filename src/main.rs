@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
+use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
+use std::process;
 
 use qtlreaper::geneobject;
 
@@ -43,9 +45,63 @@ about the QTL mapping algorithm.
 
 */
 
-fn main() {
-    let dataset = geneobject::Dataset::read_file("examples/data/input/BXD2.txt");
+/*
+usage:
+qtlreaper <genotype> <traits> <strains>
+*/
 
+pub struct Config {
+    pub genotype_file: String,
+    // pub traits_file: String,
+    // pub strains_file: String,
+}
+
+// pub enum Verbosity {
+//     Verbal,
+//     Normal,
+//     Quiet
+// }
+
+impl Config {
+    pub fn new(args: &[String]) -> Result<Config, &'static str> {
+        if args.len() < 2 {
+            return Err("Not enough arguments");
+        }
+
+        let genotype_file = args[1].clone();
+        // let traits_file = args[2].clone();
+        // let strains_file = args[3].clone();
+
+        Ok(Config {
+            genotype_file,
+            // traits_file,
+            // strains_file,
+        })
+    }
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    let config = Config::new(&args).unwrap_or_else(|err| {
+        eprintln!("Problem parsing arguments: {}", err);
+        process::exit(1);
+    });
+
+    let dataset = geneobject::Dataset::read_file(&config.genotype_file);
+
+    println!("Parsed genotype file {}", config.genotype_file);
+
+    println!("Dataset has strains: ");
+
+    dataset.strains().iter().for_each(|s| println!("{}", s));
+
+    geneobject::Traits::read_file("examples/data/input/trait.txt");
+    // for strain in dataset.strains.iter() {
+
+    // }
+
+    /*
     println!("--------------");
     for (chr, loci) in dataset.chromosomes() {
         println!("Chromosome {}", chr);
@@ -54,4 +110,5 @@ fn main() {
         }
         println!("----------------");
     }
+    */
 }

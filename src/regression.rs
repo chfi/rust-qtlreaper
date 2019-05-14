@@ -15,6 +15,7 @@ pub fn regression_2n(traits: Vec<f64>, genotypes: Vec<f64>) -> RegResult {
     let mut sig_xy = 0.0;
 
     let n_strains = traits.len();
+    let n = n_strains as f64;
 
     for ix in 0..traits.len() {
         let temp_trait = traits[ix];
@@ -22,13 +23,11 @@ pub fn regression_2n(traits: Vec<f64>, genotypes: Vec<f64>) -> RegResult {
 
         sig_y += temp_trait;
         sig_yy += temp_trait * temp_trait;
-        sig_yy += temp_trait * temp_geno;
+        sig_xy += temp_trait * temp_geno;
 
         sig_x += temp_geno;
         sig_xx += temp_geno * temp_geno;
     }
-
-    let n = n_strains as f64;
 
     let d = sig_xx - sig_x * sig_x / n;
     let tss = sig_yy - (sig_y * sig_y) / n;
@@ -144,8 +143,8 @@ pub fn regression_3n(
     let temp5 = sigC * sigC - n * sigCC;
     let temp6 = temp4 * sigXC + temp2 * sigX + temp5 * sigXX;
 
-    let mut betak = (temp0 * sigY + temp1 * sigCY + temp2 * sigXY) / temp6;
-    let mut betac = (temp1 * sigY + temp3 * sigCY + temp4 * sigXY) / temp6;
+    let betak = (temp0 * sigY + temp1 * sigCY + temp2 * sigXY) / temp6;
+    let betac = (temp1 * sigY + temp3 * sigCY + temp4 * sigXY) / temp6;
     let mut betax = (temp2 * sigY + temp4 * sigCY + temp5 * sigXY) / temp6;
 
     let ssf = sigYY
@@ -166,7 +165,7 @@ pub fn regression_3n(
     let mut lrs = n * (ssr / ssf).ln();
     if lrs == std::f64::NAN || lrs < 0.0 {
         betax = 0.0;
-        betak = 0.0;
+        // betak = 0.0;
         lrs = 0.0;
     }
 

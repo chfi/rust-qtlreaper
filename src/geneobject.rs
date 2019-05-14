@@ -6,6 +6,142 @@ use std::io::BufReader;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq)]
+struct Metadata {
+    name: String,
+    maternal: String,
+    paternal: String,
+    dataset_type: String, // "intercross" or "riset"
+    heterozygous: String, // defaults to "H"
+    unknown: String,      // defaults to "U"
+}
+
+impl Metadata {
+    fn new(name: &str, maternal: &str, paternal: &str, dataset_type: &str) -> Metadata {
+        Metadata {
+            name: String::from(name),
+            maternal: String::from(maternal),
+            paternal: String::from(paternal),
+            dataset_type: String::from(dataset_type),
+            heterozygous: String::from("H"),
+            unknown: String::from("U"),
+        }
+    }
+
+    fn parse_genotype(&self, geno: &str) -> (Genotype, f64) {
+        if geno == self.maternal.as_str() {
+            (Genotype::Mat, -1.0)
+        } else if geno == self.paternal.as_str() {
+            (Genotype::Pat, 1.0)
+        } else if geno == self.heterozygous.as_str() {
+            (Genotype::Het, 0.0)
+        } else if geno == self.unknown.as_str() {
+            (Genotype::Unk, 99.0)
+        } else {
+            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
+        }
+    }
+
+    fn parse_dominance(&self, geno: &str) -> f64 {
+        if geno == self.maternal.as_str() {
+            0.0
+        } else if geno == self.paternal.as_str() {
+            0.0
+        } else if geno == self.heterozygous.as_str() {
+            1.0
+        } else if geno == self.unknown.as_str() {
+            1.0
+        } else {
+            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
+        }
+    }
+
+    fn parse_line(line: &str) -> Option<(&str, &str)> {
+        if line.starts_with("#") {
+            return None;
+        }
+
+        if line.starts_with("@") {
+            let sep = line.find(':').unwrap();
+            let name = &line[1..sep];
+            let val = &line[sep + 1..];
+
+            return Some((name, val));
+        }
+
+        None
+    }
+
+    // panic!s if the provided lines do not contain @name, @mat, and @pat fields
+    fn from_lines(lines: Vec<&str>) -> Metadata {
+        let mut name: Option<String> = None;
+        let mut mat: Option<String> = None;
+        let mut pat: Option<String> = None;
+
+        // the type should be either `riset` or `intercross`; fix later
+        let mut typ: Option<String> = None;
+        let mut het = String::from("H");
+        let mut unk = String::from("U");
+
+        for line in lines.iter() {
+            if let Some((n, v)) = Metadata::parse_line(line) {
+                match n {
+                    "name" => name = Some(String::from(v)),
+                    "mat" => mat = Some(String::from(v)),
+                    "pat" => pat = Some(String::from(v)),
+                    "type" => typ = Some(String::from(v)),
+                    "het" => het = String::from(v),
+                    "unk" => unk = String::from(v),
+                    _ => (),
+                }
+            }
+        }
+
+        if name == None || mat == None || pat == None || typ == None {
+            panic!(
+                "Required metadata was not provided!\nname = {:?}\nmat = {:?}\npat = {:?}\ntype = {:?}",
+                name, mat, pat, typ
+            );
+        }
+
+        Metadata {
+            name: name.unwrap(),
+            maternal: mat.unwrap(),
+            paternal: pat.unwrap(),
+            dataset_type: typ.unwrap(),
+            heterozygous: het,
+            unknown: unk,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DatasetHeader {
+    has_mb: bool,
+    pub strains: Vec<String>,
+}
+
+impl DatasetHeader {
+    fn from_line(line: &str) -> Option<DatasetHeader> {
+        let header_words = parse_tab_delim_line(&line);
+
+        let has_mb = match header_words.get(3) {
+            None => panic!("Dataset header had less than four elements; no strains!"),
+            Some(w) => w == "Mb",
+        };
+
+        let skip_n = if has_mb { 4 } else { 3 };
+
+        let strains = header_words
+            .into_iter()
+            .skip(skip_n)
+            .map(|s| String::from(s))
+            .collect();
+
+        Some(DatasetHeader { has_mb, strains })
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Locus {
     pub name: String,
     dominance: Option<Vec<f64>>,
@@ -189,115 +325,6 @@ pub enum Genotype {
     Unk,
 }
 
-#[derive(Debug, PartialEq)]
-struct Metadata {
-    name: String,
-    maternal: String,
-    paternal: String,
-    dataset_type: String, // "intercross" or "riset"
-    heterozygous: String, // defaults to "H"
-    unknown: String,      // defaults to "U"
-}
-
-impl Metadata {
-    fn new(name: &str, maternal: &str, paternal: &str, dataset_type: &str) -> Metadata {
-        Metadata {
-            name: String::from(name),
-            maternal: String::from(maternal),
-            paternal: String::from(paternal),
-            dataset_type: String::from(dataset_type),
-            heterozygous: String::from("H"),
-            unknown: String::from("U"),
-        }
-    }
-
-    fn parse_genotype(&self, geno: &str) -> (Genotype, f64) {
-        if geno == self.maternal.as_str() {
-            (Genotype::Mat, -1.0)
-        } else if geno == self.paternal.as_str() {
-            (Genotype::Pat, 1.0)
-        } else if geno == self.heterozygous.as_str() {
-            (Genotype::Het, 0.0)
-        } else if geno == self.unknown.as_str() {
-            (Genotype::Unk, 99.0)
-        } else {
-            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
-        }
-    }
-
-    fn parse_dominance(&self, geno: &str) -> f64 {
-        if geno == self.maternal.as_str() {
-            0.0
-        } else if geno == self.paternal.as_str() {
-            0.0
-        } else if geno == self.heterozygous.as_str() {
-            1.0
-        } else if geno == self.unknown.as_str() {
-            1.0
-        } else {
-            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
-        }
-    }
-
-    fn parse_line(line: &str) -> Option<(&str, &str)> {
-        if line.starts_with("#") {
-            return None;
-        }
-
-        if line.starts_with("@") {
-            let sep = line.find(':').unwrap();
-            let name = &line[1..sep];
-            let val = &line[sep + 1..];
-
-            return Some((name, val));
-        }
-
-        None
-    }
-
-    // panic!s if the provided lines do not contain @name, @mat, and @pat fields
-    fn from_lines(lines: Vec<&str>) -> Metadata {
-        let mut name: Option<String> = None;
-        let mut mat: Option<String> = None;
-        let mut pat: Option<String> = None;
-
-        // the type should be either `riset` or `intercross`; fix later
-        let mut typ: Option<String> = None;
-        let mut het = String::from("H");
-        let mut unk = String::from("U");
-
-        for line in lines.iter() {
-            if let Some((n, v)) = Metadata::parse_line(line) {
-                match n {
-                    "name" => name = Some(String::from(v)),
-                    "mat" => mat = Some(String::from(v)),
-                    "pat" => pat = Some(String::from(v)),
-                    "type" => typ = Some(String::from(v)),
-                    "het" => het = String::from(v),
-                    "unk" => unk = String::from(v),
-                    _ => (),
-                }
-            }
-        }
-
-        if name == None || mat == None || pat == None || typ == None {
-            panic!(
-                "Required metadata was not provided!\nname = {:?}\nmat = {:?}\npat = {:?}\ntype = {:?}",
-                name, mat, pat, typ
-            );
-        }
-
-        Metadata {
-            name: name.unwrap(),
-            maternal: mat.unwrap(),
-            paternal: pat.unwrap(),
-            dataset_type: typ.unwrap(),
-            heterozygous: het,
-            unknown: unk,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Dataset {
     metadata: Metadata,
@@ -317,6 +344,10 @@ impl Dataset {
             chromosomes: HashMap::new(),
             dominance,
         }
+    }
+
+    pub fn strains(&self) -> &[String] {
+        &self.strains
     }
 
     pub fn read_file(path: &str) -> Dataset {
@@ -448,30 +479,47 @@ fn parse_tab_delim_line(line: &str) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug, Clone)]
-pub struct DatasetHeader {
-    has_mb: bool,
-    pub strains: Vec<String>,
+pub struct Traits {
+    strains: Vec<String>,
+    traits: HashMap<String, Vec<f64>>,
 }
 
-impl DatasetHeader {
-    fn from_line(line: &str) -> Option<DatasetHeader> {
-        let header_words = parse_tab_delim_line(&line);
+impl Traits {
+    pub fn read_file(path: &str) -> Traits {
+        let f = File::open(path).expect(&format!("Error opening traits file {}", path));
 
-        let has_mb = match header_words.get(3) {
-            None => panic!("Dataset header had less than four elements; no strains!"),
-            Some(w) => w == "Mb",
+        let reader = BufReader::new(f);
+        let mut lines = reader.lines();
+
+        let strains = match lines.next() {
+            None => panic!("Reached end of file before parsing traits header"),
+            Some(l) => {
+                let ll = l.unwrap();
+                if ll.starts_with("Trait") {
+                    ll.split_terminator('\t')
+                        .skip(1)
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    panic!("Traits file did not begin with \"Trait\", aborting");
+                }
+            }
         };
 
-        let skip_n = if has_mb { 4 } else { 3 };
+        let mut traits = HashMap::new();
 
-        let strains = header_words
-            .into_iter()
-            .skip(skip_n)
-            .map(|s| String::from(s))
-            .collect();
+        for line in lines {
+            let ll = line.unwrap();
+            let mut words = ll.split_terminator('\t');
+            let key = words.next().unwrap().to_string();
+            let values = words.map(|s| s.parse::<f64>().unwrap()).collect();
+            traits.insert(key, values);
+        }
 
-        Some(DatasetHeader { has_mb, strains })
+        println!("parsed strains: {:?}", strains);
+        println!("parsed traits: {:?}", traits);
+
+        Traits { strains, traits }
     }
 }
 
