@@ -1,67 +1,16 @@
-use std::cmp::Ordering;
 use std::env;
-use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::BufReader;
-use std::path::Path;
 use std::process;
 
 use qtlreaper::geneobject;
 use qtlreaper::regression;
-
-/*
-The original code has a lot of reference cycles and stuff,
-with each locus referring back to its chromosome, and
-a chromosome having a list of loci; then the QTLs also
-have a locus, of course.
-
-the locus doesn't need to know about the chromosome, I bet. the chr
-can be passed, if and when needed, since each chromosome contains its
-loci.
-
-buuuut I still don't know how the actual strain data is stored/represented
-
-the Locus has the genotype and dominance as *floats*, not vectors.
-
-there's also the "text" field... wthf
-
-in the c code it's the `txtstr` field, which is filled from an array of
-chars containing "BDHU", probably referring to "B" and "D" as in "BXD",
-and "H", "U" as "Heterozygous" and "Unknown"
-
-soooo... the `txtstr` field is filled, using the metadata which says
-what string corresponds to the maternal genotype, etc., with those
-known bytes.
-
-
-looking at the parsing and regression functions in dataset.c, it looks like
-the "genotype" field, which is... an array of floats? is set, for each
-strain, to some number based on the "previous" and the "next" genotypes.
-I don't know if the "previous" and the "next" depend on the strain, or
-if the dependency is on the next and previous loci.
-
-it's the next and previous loci, which makes sense given what I know
-about the QTL mapping algorithm.
-
-*/
-
-/*
-usage:
-qtlreaper <genotype> <traits> <strains>
-*/
 
 pub struct Config {
     pub genotype_file: String,
     // pub traits_file: String,
     // pub strains_file: String,
 }
-
-// pub enum Verbosity {
-//     Verbal,
-//     Normal,
-//     Quiet
-// }
 
 impl Config {
     pub fn new(args: &[String]) -> Result<Config, &'static str> {
@@ -91,53 +40,24 @@ fn main() {
 
     let dataset = geneobject::Dataset::read_file(&config.genotype_file);
 
-    for (chr, loci) in dataset.chromosomes().iter() {
-        for locus in loci.iter() {
-            let genotypes = locus.genotypes();
-            println!("Locus(\"{}\", {:?})", locus.marker.name, genotypes);
-        }
-    }
-
     println!("Parsed genotype file {}", config.genotype_file);
 
-    println!("Dataset has strains: ");
+    println!("dataset has strains: ");
 
     dataset.strains().iter().for_each(|s| println!("{}", s));
 
     let traits = geneobject::Traits::read_file("examples/data/input/trait_one.txt");
-    // for strain in dataset.strains.iter() {
-
-    // }
-
-    /*
-    for qtl in qtlresults:
-          fout_qtl.write("%s\t%s\t%s\t%2.3f\t%2.3f\t%2.3f\t\n" % (traitName,
-              qtl.locus.name, qtl.locus.chr, qtl.locus.cM, qtl.lrs, qtl.additive))
-    */
 
     let mut fout = File::create("output.txt").unwrap();
 
-    fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n");
+    fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
+        .unwrap();
 
     for (name, values) in traits.traits.iter() {
         let qtls = regression::regression(&dataset, values, &traits.strains);
-        let permu = regression::permutation(&dataset, values);
-
-        // for p in permu.iter() {
-        //     println!("{}", p);
-        // }
+        let permu = regression::permutation(&dataset, values, &traits.strains);
 
         for qtl in qtls.iter() {
-            // println!(
-            //     "{}\t{}\t{}\t{}\t{}\t{}",
-            //     name,
-            //     qtl.marker.name,
-            //     qtl.marker.chromosome,
-            //     qtl.marker.centi_morgan,
-            //     qtl.lrs,
-            //     qtl.additive
-            // )
-
             let pvalue = regression::pvalue(qtl.lrs, &permu);
             let line = format!(
                 "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
@@ -157,26 +77,4 @@ fn main() {
             fout.write(line.as_bytes()).unwrap();
         }
     }
-    // let
-    // regression::regression(dataset,
-
-    // let vec_in = vec![1, 2, 3, 4, 5, 6];
-    // let vec_perm = regression::permuted(&vec_in);
-
-    // println!("before:");
-    // println!("{:?}\n", vec_in);
-
-    // println!("after:");
-    // println!("{:?}\n", vec_perm);
-
-    /*
-    println!("--------------");
-    for (chr, loci) in dataset.chromosomes() {
-        println!("Chromosome {}", chr);
-        for locus in loci {
-            println!("name: {}\n{:?}\n-------", locus.name, locus.genotype);
-        }
-        println!("----------------");
-    }
-    */
 }

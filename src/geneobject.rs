@@ -16,17 +16,6 @@ struct Metadata {
 }
 
 impl Metadata {
-    fn new(name: &str, maternal: &str, paternal: &str, dataset_type: &str) -> Metadata {
-        Metadata {
-            name: String::from(name),
-            maternal: String::from(maternal),
-            paternal: String::from(paternal),
-            dataset_type: String::from(dataset_type),
-            heterozygous: String::from("H"),
-            unknown: String::from("U"),
-        }
-    }
-
     fn parse_genotype(&self, geno: &str) -> (Genotype, f64) {
         if geno == self.maternal.as_str() {
             (Genotype::Mat, -1.0)
@@ -114,33 +103,6 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DatasetHeader {
-    has_mb: bool,
-    pub strains: Vec<String>,
-}
-
-impl DatasetHeader {
-    fn from_line(line: &str) -> Option<DatasetHeader> {
-        let header_words = parse_tab_delim_line(&line);
-
-        let has_mb = match header_words.get(3) {
-            None => panic!("Dataset header had less than four elements; no strains!"),
-            Some(w) => w == "Mb",
-        };
-
-        let skip_n = if has_mb { 4 } else { 3 };
-
-        let strains = header_words
-            .into_iter()
-            .skip(skip_n)
-            .map(|s| String::from(s))
-            .collect();
-
-        Some(DatasetHeader { has_mb, strains })
-    }
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Marker {
     pub name: String,
@@ -151,11 +113,8 @@ pub struct Marker {
 
 #[derive(Debug, PartialEq)]
 pub struct Locus {
-    // pub name: String,
     dominance: Option<Vec<f64>>,
-    pub genotype: Vec<(Genotype, f64)>,
-    // pub centi_morgan: f64,
-    // pub mega_basepair: Option<f64>,
+    genotype: Vec<(Genotype, f64)>,
     pub marker: Marker,
 }
 
@@ -166,7 +125,8 @@ impl Locus {
     // corresponds to lines 950-1044 in dataset.c
     fn parse_line(
         metadata: &Metadata,
-        header: &DatasetHeader,
+        has_mb: bool,
+        // header: &DatasetHeader,
         dominance: bool,
         line: &str,
     ) -> (String, Locus) {
@@ -176,11 +136,10 @@ impl Locus {
 
         let words: Vec<_> = line.split_terminator('\t').collect();
 
-        // let chromosome = String::from(words.next().unwrap());
         let chromosome = String::from(words[0]);
         let name = String::from(words[1]);
         let centi_morgan = words[2].parse::<f64>().unwrap();
-        let mega_basepair = if header.has_mb {
+        let mega_basepair = if has_mb {
             words[3].parse::<f64>().ok()
         } else {
             None
@@ -193,7 +152,7 @@ impl Locus {
             chromosome: chromosome.clone(),
         };
 
-        let range = if header.has_mb { 4.. } else { 3.. };
+        let range = if has_mb { 4.. } else { 3.. };
 
         let genotype = words[range.clone()]
             .iter()
@@ -329,21 +288,66 @@ impl Locus {
         self.marker.centi_morgan
     }
 
-    // pub fn genotypes(&self) -> &[f64] {
-    pub fn genotypes(&self) -> Vec<f64> {
-        self.genotype.iter().map(|(_, g)| *g).collect()
-    }
-
     pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
-        // vec![self.genotype[5].1]
         strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
     }
 }
 
-#[derive(Debug)]
-pub struct Chromosome {
-    pub name: String,
-    pub loci: Vec<Locus>,
+pub struct Genome {
+    chr_order: Vec<String>,
+    chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
+}
+
+pub struct GenomeIter<'a> {
+    keys: Vec<String>,
+    chromosomes: &'a HashMap<String, Vec<Locus>>,
+}
+
+impl<'a> Iterator for GenomeIter<'a> {
+    type Item = &'a Vec<Locus>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.keys.len() == 0 {
+            None
+        } else {
+            let chr = self.keys.remove(0);
+            self.chromosomes.get(&chr)
+        }
+    }
+}
+
+impl Genome {
+    fn new() -> Genome {
+        Genome {
+            chr_order: Vec::new(),
+            chromosomes: HashMap::new(),
+        }
+    }
+
+    fn or_push_chromosome(&mut self, chr: String) -> &mut Vec<Locus> {
+        if let None = self.chr_order.iter().find(|&c| c == &chr) {
+            self.chr_order.push(chr.clone());
+        }
+
+        self.chromosomes.entry(chr).or_insert_with(|| Vec::new())
+    }
+
+    fn push_locus(&mut self, chr: String, locus: Locus) {
+        self.or_push_chromosome(chr).push(locus);
+    }
+
+    /// Iterates through the chromosomes in the order they were added to the genotype
+    pub fn iter<'a>(&'a self) -> GenomeIter<'a> {
+        GenomeIter {
+            keys: self.chr_order.clone(),
+            chromosomes: &self.chromosomes,
+        }
+    }
+
+    /// Mutably iterates through the chromosomes, using the arbitrary order from HashMap
+    fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = (&'a String, &'a mut Vec<Locus>)> {
+        self.chromosomes.iter_mut()
+    }
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -354,23 +358,23 @@ pub enum Genotype {
     Unk,
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Dataset {
     metadata: Metadata,
-    header: DatasetHeader,
-    chromosomes: HashMap<String, Vec<Locus>>,
+    has_mb: bool,
+    pub genome: Genome,
     strains: Vec<String>,
     dominance: bool, // true if dataset type is "intercross"
 }
 
 impl Dataset {
-    fn new(metadata: Metadata, header: DatasetHeader, strains: Vec<String>) -> Dataset {
+    fn new(metadata: Metadata, has_mb: bool, strains: Vec<String>) -> Dataset {
         let dominance = metadata.dataset_type == String::from("intercross");
         Dataset {
             metadata,
-            header,
+            has_mb,
             strains,
-            chromosomes: HashMap::new(),
+            genome: Genome::new(),
             dominance,
         }
     }
@@ -387,7 +391,30 @@ impl Dataset {
     }
 
     pub fn n_loci(&self) -> usize {
-        self.chromosomes.iter().map(|(_, loci)| loci.len()).sum()
+        self.genome
+            .chromosomes
+            .iter()
+            .map(|(_, loci)| loci.len())
+            .sum()
+    }
+
+    fn parse_dataset_header(line: &str) -> (bool, Vec<String>) {
+        let header_words: Vec<_> = line.split_terminator('\t').collect();
+
+        let has_mb = match header_words.get(3) {
+            None => panic!("Dataset header had less than four elements; no strains!"),
+            Some(w) => *w == "Mb",
+        };
+
+        let skip_n = if has_mb { 4 } else { 3 };
+
+        let strains = header_words
+            .into_iter()
+            .skip(skip_n)
+            .map(|s| String::from(s))
+            .collect();
+
+        (has_mb, strains)
     }
 
     pub fn read_file(path: &str) -> Dataset {
@@ -395,7 +422,9 @@ impl Dataset {
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
-        let mut header = None;
+
+        let has_mb;
+        let strains;
 
         let mut metadata_lines = vec![];
 
@@ -405,7 +434,9 @@ impl Dataset {
                 Some(l) => {
                     let ll = l.unwrap();
                     if ll.starts_with("Chr	Locus	cM") {
-                        header = DatasetHeader::from_line(&ll);
+                        let header = Dataset::parse_dataset_header(&ll);
+                        has_mb = header.0;
+                        strains = header.1;
                         break;
                     } else {
                         metadata_lines.push(ll);
@@ -416,31 +447,16 @@ impl Dataset {
 
         let metadata = Metadata::from_lines(metadata_lines.iter().map(|s| s.as_str()).collect());
 
-        let strains = header.clone().unwrap().strains.clone();
-
-        let mut dataset = Dataset::new(metadata, header.unwrap().clone(), strains);
+        let mut dataset = Dataset::new(metadata, has_mb, strains);
 
         for line in lines {
-            dataset.parse_locus(&line.unwrap());
+            let (chr, locus) =
+                Locus::parse_line(&dataset.metadata, has_mb, dataset.dominance, &line.unwrap());
+            dataset.genome.push_locus(chr, locus);
         }
         dataset.estimate_unknown();
 
         dataset
-    }
-
-    pub fn chromosomes(&self) -> &HashMap<String, Vec<Locus>> {
-        &self.chromosomes
-    }
-
-    // parse a line with a locus, adding it to the corresponding
-    // chromosome in the dataset. NOTE: we assume the input data is
-    // sorted by chromosome and marker position!
-    fn parse_locus(&mut self, line: &str) {
-        let (chr, locus) = Locus::parse_line(&self.metadata, &self.header, self.dominance, line);
-
-        let loci = self.chromosomes.entry(chr).or_insert_with(|| Vec::new());
-
-        loci.push(locus);
     }
 
     // Corresponds to lines 1071-1152 in dataset.c
@@ -454,7 +470,7 @@ impl Dataset {
             }
         };
 
-        for (_chr, loci) in self.chromosomes.iter_mut() {
+        for (_chr, loci) in self.genome.iter_mut() {
             let replace_genotype = |locus: Option<&mut Locus>| {
                 locus
                     .unwrap()
@@ -467,7 +483,7 @@ impl Dataset {
             replace_genotype(loci.last_mut());
         }
 
-        for (_chr, loci) in self.chromosomes.iter_mut() {
+        for (_chr, loci) in self.genome.iter_mut() {
             // then, for each chromosome, construct the intervals of
             // unknown genotypes
             let unk = Locus::find_unknown_intervals(loci);
@@ -485,7 +501,6 @@ pub struct QTL {
     pub additive: f64,
     pub dominance: Option<f64>,
     pub marker: Marker,
-    // pub locus: Locus,
 }
 
 impl QTL {
@@ -497,27 +512,6 @@ impl QTL {
             marker,
         }
     }
-}
-
-// the PartialEq and PartialOrd definitions are taken from the C version,
-// but they don't actually make sense -- two QTLs are the *same* iff they
-// have the same LRS? yeah no.
-impl PartialEq<QTL> for QTL {
-    fn eq(&self, other: &QTL) -> bool {
-        self.lrs == other.lrs
-    }
-}
-
-impl PartialOrd for QTL {
-    fn partial_cmp(&self, other: &QTL) -> Option<Ordering> {
-        self.lrs.partial_cmp(&other.lrs)
-    }
-}
-
-fn parse_tab_delim_line(line: &str) -> Vec<String> {
-    line.split_terminator('\t')
-        .map(|s| String::from(s))
-        .collect()
 }
 
 pub struct Traits {
@@ -573,29 +567,19 @@ mod tests {
         String::from("Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6")
     }
 
-    fn header_line_2() -> String {
-        String::from("Chr	Locus	cM	Mb	BXD1	BXD2	BXD5	BXD6")
-    }
-
     #[test]
     fn it_can_parse_header() {
         let header = header_line();
-        let result = parse_tab_delim_line(&header);
 
-        assert_eq!(
-            vec!["Chr", "Locus", "cM", "BXD1", "BXD2", "BXD5", "BXD6"],
-            result
-        );
+        let (has_mb_1, strains_1) = Dataset::parse_dataset_header(&header);
 
-        let parsed = DatasetHeader::from_line(&header).unwrap();
+        assert_eq!(false, has_mb_1);
+        assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], strains_1);
 
-        assert_eq!(false, parsed.has_mb);
-        assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed.strains);
+        let (has_mb_2, strains_2) = Dataset::parse_dataset_header(&header);
 
-        let parsed_2 = DatasetHeader::from_line(&header_line_2()).unwrap();
-
-        assert_eq!(true, parsed_2.has_mb);
-        assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], parsed_2.strains);
+        assert_eq!(true, has_mb_2);
+        assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], strains_2);
     }
 
     #[test]
@@ -616,12 +600,9 @@ mod tests {
     #[test]
     fn it_can_parse_metadata() {
         let lines = vec![
-            "#the first three/four columns should be \"Chr, Locus, cM, [Mb]\" (case sensitive)",
-        "#please save as Unix format text file.",
         "#comment line always start with a '#'",
         "#type riset or intercross",
         "@type:riset",
-        "#@type:intercross",
         "@name:BXD",
         "#abbreviation of maternal or paternal parents",
         "@mat:B6",
@@ -635,7 +616,14 @@ mod tests {
 
         assert_eq!(
             Metadata::from_lines(lines),
-            Metadata::new("BXD", "B6", "D", "riset")
+            Metadata {
+                name: String::from("BXD"),
+                maternal: String::from("B6"),
+                paternal: String::from("D"),
+                dataset_type: String::from("riset"),
+                heterozygous: String::from("H"),
+                unknown: String::from("U"),
+            }
         );
     }
 

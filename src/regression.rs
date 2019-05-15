@@ -1,4 +1,4 @@
-use crate::geneobject::{Dataset, Genotype, Marker, Traits, QTL};
+use crate::geneobject::{Dataset, Genotype, QTL};
 use rand::Rng;
 
 pub struct RegResult {
@@ -7,9 +7,9 @@ pub struct RegResult {
     dominance: Option<f64>,
 }
 
-pub fn permuted<T>(data: &Vec<T>) -> Vec<T>
+fn permuted<T>(data: &Vec<T>) -> Vec<T>
 where
-    T: Copy + Clone,
+    T: Copy,
 {
     let mut result = data.clone();
     let n = data.len();
@@ -22,7 +22,7 @@ where
     result
 }
 
-pub fn permuted_mut<T>(data: &mut Vec<T>) {
+fn permuted_mut<T>(data: &mut Vec<T>) {
     let n = data.len();
     for ix in 0..n {
         let j = rand::thread_rng().gen_range(0, n);
@@ -60,20 +60,10 @@ pub fn regression(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -
 
     let strain_ixs = dataset.strain_indices(strains);
 
-    let mut keys: Vec<&String> = dataset.chromosomes().keys().collect();
-
-    keys.sort();
-
-    for chr in keys.iter() {
-        let loci = dataset.chromosomes().get(*chr).unwrap();
-        // }
-
-        // for (_chr, loci) in dataset.chromosomes().iter() {
+    for loci in dataset.genome.iter() {
         for locus in loci.iter() {
-            // let genotypes = locus.genotypes();
-            // let genotypes = locus.genotype.iter().map(|(_, &g)| g).collect();
             let genotypes = locus.genotypes_subset(&strain_ixs);
-            let reg_result = regression_2n_(traits, &genotypes);
+            let reg_result = regression_2n(traits, &genotypes);
             result.push(QTL {
                 lrs: reg_result.lrs,
                 additive: reg_result.additive,
@@ -86,35 +76,28 @@ pub fn regression(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -
     result
 }
 
-pub fn permutation(dataset: &Dataset, traits: &Vec<f64>) -> Vec<f64> {
+pub fn permutation(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -> Vec<f64> {
     let lrs_thresh = -1.0;
     let top_n = 10;
     let n_step = 1000;
 
+    let strain_ixs = dataset.strain_indices(strains);
     let mut lrs_vec = Vec::with_capacity(n_step);
     let mut p_traits = permuted(traits);
-
-    // let mut reg_result = RegResult {
-    //     lrs: 0.0,
-    //     additive: 0.0,
-    //     dominance: None,
-    // };
 
     for _ in 0..n_step {
         let mut lrs_max = 0.0;
 
-        dataset.chromosomes().values().for_each(|loci| {
+        for loci in dataset.genome.iter() {
             for locus in loci.iter() {
-                // let genotypes = locus.genotypes();
-                // regression_2n_mut(&p_traits, &locus.genotype, &mut reg_result);
-
-                let reg_result = regression_2n_(&p_traits, &locus.genotype);
+                let genotypes = locus.genotypes_subset(&strain_ixs);
+                let reg_result = regression_2n(traits, &genotypes);
 
                 if lrs_max < reg_result.lrs {
                     lrs_max = reg_result.lrs;
                 }
             }
-        });
+        }
 
         permuted_mut(&mut p_traits);
         lrs_vec.push(lrs_max);
@@ -123,59 +106,9 @@ pub fn permutation(dataset: &Dataset, traits: &Vec<f64>) -> Vec<f64> {
     lrs_vec.sort_by(|x, y| x.partial_cmp(y).unwrap());
     lrs_vec
 }
-
-pub fn regression_2n_mut(traits: &[f64], genotypes: &[(Genotype, f64)], result: &mut RegResult) {
-    let mut sig_y = 0.0;
-    let mut sig_yy = 0.0;
-
-    let mut sig_x = 0.0;
-    let mut sig_xx = 0.0;
-    let mut sig_xy = 0.0;
-
-    let n_strains = traits.len();
-    let n = n_strains as f64;
-
-    for ix in 0..traits.len() {
-        let temp_trait = traits[ix];
-        let temp_geno = genotypes[ix].1;
-
-        sig_y += temp_trait;
-        sig_yy += temp_trait * temp_trait;
-        sig_xy += temp_trait * temp_geno;
-
-        sig_x += temp_geno;
-        sig_xx += temp_geno * temp_geno;
-    }
-
-    let d = sig_xx - sig_x * sig_x / n;
-    let tss = sig_yy - (sig_y * sig_y) / n;
-
-    let a = (sig_xx * sig_y - sig_x * sig_xy) / (n * d);
-    let mut b = (sig_xy - (sig_x * sig_y / n)) / d;
-
-    let rss =
-        sig_yy + a * (n * a - 2.0 * sig_y) + b * (2.0 * a * sig_x + b * sig_xx - 2.0 * sig_xy);
-
-    let mut lrs = n * (tss / rss).ln();
-
-    if lrs == std::f64::NAN || lrs < 0.0 {
-        b = 0.0;
-        lrs = 0.0;
-    }
-
-    result.lrs = lrs;
-    result.additive = b;
-    // result.dominance
-    // RegResult {
-    //     lrs,
-    //     additive: b,
-    //     dominance: None,
-    // }
-}
-
 // `traits` corresponds to `YY`
 // `genotypes` corresponds to `XX`
-pub fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
+fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
     let mut sig_y = 0.0;
     let mut sig_yy = 0.0;
 
@@ -221,47 +154,7 @@ pub fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult
     }
 }
 
-pub fn regression_2n_(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
-    let mut sigY = 0.0;
-    let mut sigYY = 0.0;
-    let mut sigX = 0.0;
-    let mut sigXX = 0.0;
-    let mut sigXY = 0.0;
-
-    let n_strains = traits.len();
-    let n = n_strains as f64;
-
-    for ix in 0..traits.len() {
-        // for (i=0;i<n;i++){
-        let mut temp1 = traits[ix];
-        let mut temp2 = genotypes[ix].1;
-        sigY += temp1;
-        sigYY += temp1 * temp1;
-        sigXY += temp1 * temp2;
-        sigX += temp2;
-        sigXX += temp2 * temp2;
-    }
-    let mut d = sigXX - sigX * sigX / n;
-    let mut tss = sigYY - (sigY * sigY) / n;
-    //printf("N=%2.1f tss= %2.1f rss=%2.1f" , LRS, tss,rss);
-    let mut a = (sigXX * sigY - sigX * sigXY) / (n * d);
-    let mut b = (sigXY - (sigX * sigY / n)) / d;
-    let mut rss = sigYY + a * (n * a - 2.0 * sigY) + b * (2.0 * a * sigX + b * sigXX - 2.0 * sigXY);
-    let mut lrs = n * (tss / rss).ln();
-
-    if lrs == std::f64::NAN || lrs < 0.0 {
-        b = 0.0;
-        lrs = 0.0;
-    }
-
-    RegResult {
-        lrs,
-        additive: b,
-        dominance: None,
-    }
-}
-
-pub fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -> RegResult {
+fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -> RegResult {
     let mut sigYV = 0.0;
     let mut sigYYV = 0.0;
     let mut sigXV = 0.0;
@@ -306,7 +199,7 @@ pub fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64
     }
 }
 
-pub fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
+fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
     let mut sigC = 0.0;
     let mut sigX = 0.0;
     let mut sigY = 0.0;
