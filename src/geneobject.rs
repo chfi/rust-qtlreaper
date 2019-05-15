@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::ops::Range;
 
+// `Metadata` is really only used for parsing; it's the data above the
+// header line in the genome data.
 #[derive(Debug, PartialEq)]
 struct Metadata {
     name: String,
@@ -288,16 +290,27 @@ impl Locus {
         self.marker.centi_morgan
     }
 
+    // This is probably what is slowing things down
     pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
         strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
+    }
+
+    pub fn dominance_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
+        match &self.dominance {
+            None => {
+                panic!("Attempted to extract dominance subset, but dataset has no dominance data")
+            }
+            Some(d) => strain_ixs.iter().map(|ix| d[*ix]).collect(),
+        }
     }
 }
 
 pub struct Genome {
     chr_order: Vec<String>,
-    chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
+    pub chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
 }
 
+/// Iterator that steps through the genome in order
 pub struct GenomeIter<'a> {
     keys: Vec<String>,
     chromosomes: &'a HashMap<String, Vec<Locus>>,
@@ -364,7 +377,7 @@ pub struct Dataset {
     has_mb: bool,
     pub genome: Genome,
     strains: Vec<String>,
-    dominance: bool, // true if dataset type is "intercross"
+    pub dominance: bool, // true if dataset type is "intercross"
 }
 
 impl Dataset {

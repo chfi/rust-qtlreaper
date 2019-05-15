@@ -8,23 +8,23 @@ use qtlreaper::regression;
 
 pub struct Config {
     pub genotype_file: String,
-    // pub traits_file: String,
+    pub traits_file: String,
     // pub strains_file: String,
 }
 
 impl Config {
     pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 2 {
+        if args.len() < 3 {
             return Err("Not enough arguments");
         }
 
         let genotype_file = args[1].clone();
-        // let traits_file = args[2].clone();
+        let traits_file = args[2].clone();
         // let strains_file = args[3].clone();
 
         Ok(Config {
             genotype_file,
-            // traits_file,
+            traits_file,
             // strains_file,
         })
     }
@@ -46,12 +46,16 @@ fn main() {
 
     dataset.strains().iter().for_each(|s| println!("{}", s));
 
-    let traits = geneobject::Traits::read_file("examples/data/input/trait_one.txt");
+    println!("dominance: {}", dataset.dominance);
+
+    let traits = geneobject::Traits::read_file(&config.traits_file);
 
     let mut fout = File::create("output.txt").unwrap();
 
     fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
         .unwrap();
+
+    // println!("{:?}", dataset.genome.chromosomes);
 
     for (name, values) in traits.traits.iter() {
         let qtls = regression::regression(&dataset, values, &traits.strains);
@@ -70,6 +74,8 @@ fn main() {
                 qtl.lrs,
                 3,
                 qtl.additive,
+                // 3,
+                // qtl.dominance.unwrap(),
                 3,
                 pvalue
             );

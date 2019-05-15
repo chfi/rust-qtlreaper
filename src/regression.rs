@@ -63,7 +63,12 @@ pub fn regression(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -
     for loci in dataset.genome.iter() {
         for locus in loci.iter() {
             let genotypes = locus.genotypes_subset(&strain_ixs);
-            let reg_result = regression_2n(traits, &genotypes);
+            let dominance = locus.dominance_subset(&strain_ixs);
+            let reg_result = if dataset.dominance {
+                regression_3n(traits, &genotypes, &dominance, false)
+            } else {
+                regression_2n(traits, &genotypes)
+            };
             result.push(QTL {
                 lrs: reg_result.lrs,
                 additive: reg_result.additive,
@@ -187,7 +192,7 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
         sigYYV + a * (sig1V * a - 2.0 * sigYV) + b * (2.0 * a * sigXV + b * sigXXV - 2.0 * sigXYV);
     let mut lrs = (n_strains as f64) * (tss / rss).ln();
 
-    if lrs == std::f64::NAN || lrs < 0.0 {
+    if lrs.is_nan() || lrs < 0.0 {
         b = 0.0;
         lrs = 0.0;
     }
@@ -199,7 +204,12 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
     }
 }
 
-fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
+fn regression_3n(
+    traits: &[f64],
+    genotypes: &[(Genotype, f64)],
+    controls: &[f64],
+    diff: bool,
+) -> RegResult {
     let mut sigC = 0.0;
     let mut sigX = 0.0;
     let mut sigY = 0.0;
@@ -215,7 +225,7 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
 
     for ix in 0..traits.len() {
         let a = controls[ix];
-        let b = genotypes[ix];
+        let b = genotypes[ix].1;
         let y = traits[ix];
         sigC += a;
         sigX += b;
@@ -256,7 +266,7 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
     };
 
     let mut lrs = n * (ssr / ssf).ln();
-    if lrs == std::f64::NAN || lrs < 0.0 {
+    if lrs.is_nan() || lrs < 0.0 {
         betax = 0.0;
         // betak = 0.0;
         lrs = 0.0;
