@@ -54,21 +54,51 @@ pub fn pvalue(lrs: f64, permutations: &[f64]) -> f64 {
 
 // TODO: add support for variance and control
 // TODO: add support for providing a list of strain names to include
-pub fn regression(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -> Vec<QTL> {
+pub fn regression(
+    dataset: &Dataset,
+    traits: &Vec<f64>,
+    strains: &Vec<String>,
+    control: Option<&str>,
+) -> Vec<QTL> {
     //
     let mut result = Vec::with_capacity(dataset.n_loci());
 
     let strain_ixs = dataset.strain_indices(strains);
 
+    let control_geno: Option<Vec<_>> = control.map(|c| {
+        dataset
+            .genome
+            .find_locus(c)
+            .unwrap()
+            .genotypes_subset(&strain_ixs)
+    });
+
+    if control != None && control_geno == None {
+        panic!("Control could not be found in loci list");
+    }
+
     for loci in dataset.genome.iter() {
         for locus in loci.iter() {
             let genotypes = locus.genotypes_subset(&strain_ixs);
-            let dominance = locus.dominance_subset(&strain_ixs);
-            let reg_result = if dataset.dominance {
-                regression_3n(traits, &genotypes, &dominance, false)
-            } else {
-                regression_2n(traits, &genotypes)
+
+            let reg_result = match &control_geno {
+                None => {
+                    if dataset.dominance {
+                        let dominance = locus.dominance_subset(&strain_ixs);
+                        regression_3n(traits, &genotypes, &dominance, false)
+                    } else {
+                        regression_2n(traits, &genotypes)
+                    }
+                }
+                Some(c) => {
+                    if dataset.dominance {
+                        panic!("reaper: no composite regression for intercross");
+                    } else {
+                        regression_3n(traits, &genotypes, &c, false)
+                    }
+                }
             };
+
             result.push(QTL {
                 lrs: reg_result.lrs,
                 additive: reg_result.additive,
@@ -113,7 +143,7 @@ pub fn permutation(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) 
 }
 // `traits` corresponds to `YY`
 // `genotypes` corresponds to `XX`
-fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
+fn regression_2n(traits: &[f64], genotypes: &[f64]) -> RegResult {
     let mut sig_y = 0.0;
     let mut sig_yy = 0.0;
 
@@ -126,7 +156,7 @@ fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
 
     for ix in 0..traits.len() {
         let temp_trait = traits[ix];
-        let temp_geno = genotypes[ix].1;
+        let temp_geno = genotypes[ix];
 
         sig_y += temp_trait;
         sig_yy += temp_trait * temp_trait;
@@ -147,7 +177,7 @@ fn regression_2n(traits: &[f64], genotypes: &[(Genotype, f64)]) -> RegResult {
 
     let mut lrs = n * (tss / rss).ln();
 
-    if lrs == std::f64::NAN || lrs < 0.0 {
+    if lrs.is_nan() || lrs < 0.0 {
         b = 0.0;
         lrs = 0.0;
     }
@@ -204,12 +234,7 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
     }
 }
 
-fn regression_3n(
-    traits: &[f64],
-    genotypes: &[(Genotype, f64)],
-    controls: &[f64],
-    diff: bool,
-) -> RegResult {
+fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
     let mut sigC = 0.0;
     let mut sigX = 0.0;
     let mut sigY = 0.0;
@@ -225,7 +250,7 @@ fn regression_3n(
 
     for ix in 0..traits.len() {
         let a = controls[ix];
-        let b = genotypes[ix].1;
+        let b = genotypes[ix];
         let y = traits[ix];
         sigC += a;
         sigX += b;
@@ -268,7 +293,6 @@ fn regression_3n(
     let mut lrs = n * (ssr / ssf).ln();
     if lrs.is_nan() || lrs < 0.0 {
         betax = 0.0;
-        // betak = 0.0;
         lrs = 0.0;
     }
 

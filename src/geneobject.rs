@@ -291,8 +291,12 @@ impl Locus {
     }
 
     // This is probably what is slowing things down
-    pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
-        strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
+    // pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
+    //     strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
+    // }
+
+    pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
+        strain_ixs.iter().map(|ix| self.genotype[*ix].1).collect()
     }
 
     pub fn dominance_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
@@ -360,6 +364,17 @@ impl Genome {
     /// Mutably iterates through the chromosomes, using the arbitrary order from HashMap
     fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = (&'a String, &'a mut Vec<Locus>)> {
         self.chromosomes.iter_mut()
+    }
+
+    pub fn find_locus(&self, name: &str) -> Option<&Locus> {
+        let mut result = None;
+        for loci in self.iter() {
+            if let Some(l) = loci.iter().find(|locus| locus.marker.name == name) {
+                result = Some(l)
+            }
+        }
+
+        result
     }
 }
 

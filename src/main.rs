@@ -9,7 +9,7 @@ use qtlreaper::regression;
 pub struct Config {
     pub genotype_file: String,
     pub traits_file: String,
-    // pub strains_file: String,
+    pub control: Option<String>,
 }
 
 impl Config {
@@ -20,12 +20,13 @@ impl Config {
 
         let genotype_file = args[1].clone();
         let traits_file = args[2].clone();
-        // let strains_file = args[3].clone();
+
+        let control = args.get(3).map(|c| c.clone());
 
         Ok(Config {
             genotype_file,
             traits_file,
-            // strains_file,
+            control,
         })
     }
 }
@@ -55,10 +56,13 @@ fn main() {
     fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
         .unwrap();
 
-    // println!("{:?}", dataset.genome.chromosomes);
-
     for (name, values) in traits.traits.iter() {
-        let qtls = regression::regression(&dataset, values, &traits.strains);
+        let qtls = regression::regression(
+            &dataset,
+            values,
+            &traits.strains,
+            config.control.as_ref().map(|s| &**s),
+        );
         let permu = regression::permutation(&dataset, values, &traits.strains);
 
         for qtl in qtls.iter() {
