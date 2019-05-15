@@ -1,0 +1,27 @@
+#this is a test file, it should be tab-delimited
+#the first three/four columns should be "Chr, Locus, cM, [Mb]" (case sensitive)
+#please save as Unix format text file.
+#comment line always start with a '#'
+#type riset or intercross
+@type:riset
+#@type:intercross
+@name:BXD
+#abbreviation of maternal or paternal parents
+@mat:B6
+@pat:D
+#heterozygous , optional, default is "H"
+@het:H
+#Unknown , optional, default is "U"
+@unk:U
+Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6	BXD8	BXD9	BXD11	BXD12	BXD13	BXD14	BXD15	BXD16	BXD18	BXD19	BXD20	BXD21	BXD22	BXD23	BXD24	BXD25	BXD27	BXD28	BXD29	BXD30	BXD31	BXD32	BXD33	BXD34	BXD35	BXD36	BXD37	BXD38	BXD39	BXD40	BXD42
+15	D15Mit13	6.7	B6	D	B6	B6	B6	D	B6	B6	B6	D	B6	B6	D	B6	B6	D	B6	B6	D	D	D	D	B6	D	B6	B6	B6	B6	D	B6	B6	B6	B6	B6	D
+15	D15Mit53	9.2	B6	D	D	B6	B6	D	B6	B6	B6	D	B6	B6	D	B6	B6	D	B6	B6	D	D	D	D	B6	D	B6	B6	D	D	D	B6	B6	B6	B6	B6	D
+15	D15Mit252	13.2	B6	D	D	B6	B6	D	B6	B6	B6	D	B6	B6	D	B6	B6	D	B6	B6	D	D	D	D	B6	D	B6	B6	D	D	D	B6	B6	U	B6	B6	D
+15	D15Mit7	14.5	U	D	B6	B6	B6	D	B6	B6	B6	D	B6	B6	D	B6	B6	D	B6	B6	D	B6	D	D	B6	D	U	B6	D	D	D	U	U	U	B6	B6	D
+15	D15Mit5	22.2	U	D	B6	B6	B6	D	B6	B6	B6	D	B6	B6	D	B6	B6	D	B6	B6	D	B6	D	D	B6	D	U	B6	D	D	D	U	U	U	B6	B6	D
+15	D15Mit232	24	B6	D	B6	B6	B6	D	B6	B6	B6	D	B6	B6	D	D	B6	D	B6	B6	D	B6	D	D	B6	D	D	B6	D	D	D	U	D	U	B6	B6	D
+15	D15Mit63	29.2	B6	B6	B6	B6	D	D	B6	B6	D	D	B6	B6	D	D	B6	D	B6	B6	D	B6	D	D	B6	D	D	B6	D	D	D	U	D	U	B6	D	B6
+15	D15Mit105	42	B6	B6	B6	B6	D	D	B6	B6	D	D	B6	B6	D	D	B6	D	D	B6	D	B6	D	D	B6	D	D	B6	D	D	B6	D	B6	D	B6	D	B6
+15	D15Mit189	50	B6	D	D	B6	D	D	B6	B6	D	D	D	B6	D	D	D	D	D	B6	D	B6	D	D	B6	D	D	D	D	D	B6	D	B6	D	B6	D	B6
+15	D15Mit34	52.5	B6	D	B6	B6	D	D	B6	B6	D	B6	B6	B6	D	B6	D	D	B6	B6	B6	D	D	D	B6	D	D	D	D	D	B6	D	B6	B6	B6	D	B6
+15	D15Mit16	62	D	B6	D	B6	D	D	B6	D	D	B6	B6	B6	D	B6	D	D	B6	B6	D	B6	D	B6	D	D	B6	D	B6	D	D	D	B6	B6	B6	B6	B6
