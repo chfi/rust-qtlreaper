@@ -272,7 +272,7 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
     let temp6 = temp4 * sigXC + temp2 * sigX + temp5 * sigXX;
 
     let betak = (temp0 * sigY + temp1 * sigCY + temp2 * sigXY) / temp6;
-    let betac = (temp1 * sigY + temp3 * sigCY + temp4 * sigXY) / temp6;
+    let mut betac = (temp1 * sigY + temp3 * sigCY + temp4 * sigXY) / temp6;
     let mut betax = (temp2 * sigY + temp4 * sigCY + temp5 * sigXY) / temp6;
 
     let ssf = sigYY
@@ -294,6 +294,8 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
     if lrs.is_nan() || lrs < 0.0 {
         betax = 0.0;
         lrs = 0.0;
+        // NOTE: in the old implementation it is `betak`, not `betac`, that is set to 0.0 here, but `betak` is not used later, so I assume it's a mistake!
+        betac = 0.0;
     }
 
     RegResult {

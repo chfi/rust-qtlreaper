@@ -38,8 +38,13 @@ fn main() {
 
     let mut fout = File::create(opt.output_file).unwrap();
 
-    fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
-        .unwrap();
+    if dataset.dominance {
+        fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tDominance\tpValue\n")
+            .unwrap();
+    } else {
+        fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
+            .unwrap();
+    }
 
     for (name, values) in traits.traits.iter() {
         let qtls = regression::regression(
@@ -55,23 +60,6 @@ fn main() {
 
             let line = if dataset.dominance {
                 format!(
-                    "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
-                    name,
-                    qtl.marker.name,
-                    qtl.marker.chromosome,
-                    3,
-                    qtl.marker.centi_morgan,
-                    3,
-                    qtl.lrs,
-                    3,
-                    qtl.additive,
-                    // 3,
-                    // qtl.dominance.unwrap(),
-                    3,
-                    pvalue
-                )
-            } else {
-                format!(
                     "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
                     name,
                     qtl.marker.name,
@@ -84,6 +72,21 @@ fn main() {
                     qtl.additive,
                     3,
                     qtl.dominance.unwrap(),
+                    3,
+                    pvalue
+                )
+            } else {
+                format!(
+                    "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
+                    name,
+                    qtl.marker.name,
+                    qtl.marker.chromosome,
+                    3,
+                    qtl.marker.centi_morgan,
+                    3,
+                    qtl.lrs,
+                    3,
+                    qtl.additive,
                     3,
                     pvalue
                 )

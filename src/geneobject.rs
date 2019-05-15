@@ -582,9 +582,6 @@ impl Traits {
             traits.push((key, values));
         }
 
-        println!("parsed strains: {:?}", strains);
-        println!("parsed traits: {:?}", traits);
-
         Traits { strains, traits }
     }
 }
