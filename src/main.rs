@@ -1,57 +1,42 @@
-use std::env;
+extern crate structopt;
+
 use std::fs::File;
 use std::io::prelude::*;
-use std::process;
+use std::path::PathBuf;
+use structopt::StructOpt;
 
 use qtlreaper::geneobject;
 use qtlreaper::regression;
 
-pub struct Config {
-    pub genotype_file: String,
-    pub traits_file: String,
-    pub control: Option<String>,
-}
+#[derive(StructOpt, Debug)]
+#[structopt(name = "qtlreaper")]
+struct Opt {
+    #[structopt(long = "geno")]
+    genotype_file: PathBuf,
 
-impl Config {
-    pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 3 {
-            return Err("Not enough arguments");
-        }
+    #[structopt(long = "traits")]
+    traits_file: PathBuf,
 
-        let genotype_file = args[1].clone();
-        let traits_file = args[2].clone();
+    #[structopt(short = "c", long = "control", long_help = r"control marker name")]
+    control: Option<String>,
 
-        let control = args.get(3).map(|c| c.clone());
-
-        Ok(Config {
-            genotype_file,
-            traits_file,
-            control,
-        })
-    }
+    #[structopt(
+        short = "o",
+        long = "output",
+        long_help = r"output file",
+        default_value = "output.txt"
+    )]
+    output_file: PathBuf,
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let opt = Opt::from_args();
 
-    let config = Config::new(&args).unwrap_or_else(|err| {
-        eprintln!("Problem parsing arguments: {}", err);
-        process::exit(1);
-    });
+    let dataset = geneobject::Dataset::read_file(&opt.genotype_file);
 
-    let dataset = geneobject::Dataset::read_file(&config.genotype_file);
+    let traits = geneobject::Traits::read_file(&opt.traits_file);
 
-    println!("Parsed genotype file {}", config.genotype_file);
-
-    println!("dataset has strains: ");
-
-    dataset.strains().iter().for_each(|s| println!("{}", s));
-
-    println!("dominance: {}", dataset.dominance);
-
-    let traits = geneobject::Traits::read_file(&config.traits_file);
-
-    let mut fout = File::create("output.txt").unwrap();
+    let mut fout = File::create(opt.output_file).unwrap();
 
     fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
         .unwrap();
@@ -61,28 +46,48 @@ fn main() {
             &dataset,
             values,
             &traits.strains,
-            config.control.as_ref().map(|s| &**s),
+            opt.control.as_ref().map(|s| &**s),
         );
         let permu = regression::permutation(&dataset, values, &traits.strains);
 
         for qtl in qtls.iter() {
             let pvalue = regression::pvalue(qtl.lrs, &permu);
-            let line = format!(
-                "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
-                name,
-                qtl.marker.name,
-                qtl.marker.chromosome,
-                3,
-                qtl.marker.centi_morgan,
-                3,
-                qtl.lrs,
-                3,
-                qtl.additive,
-                // 3,
-                // qtl.dominance.unwrap(),
-                3,
-                pvalue
-            );
+
+            let line = if dataset.dominance {
+                format!(
+                    "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
+                    name,
+                    qtl.marker.name,
+                    qtl.marker.chromosome,
+                    3,
+                    qtl.marker.centi_morgan,
+                    3,
+                    qtl.lrs,
+                    3,
+                    qtl.additive,
+                    // 3,
+                    // qtl.dominance.unwrap(),
+                    3,
+                    pvalue
+                )
+            } else {
+                format!(
+                    "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
+                    name,
+                    qtl.marker.name,
+                    qtl.marker.chromosome,
+                    3,
+                    qtl.marker.centi_morgan,
+                    3,
+                    qtl.lrs,
+                    3,
+                    qtl.additive,
+                    3,
+                    qtl.dominance.unwrap(),
+                    3,
+                    pvalue
+                )
+            };
 
             fout.write(line.as_bytes()).unwrap();
         }

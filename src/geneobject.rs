@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::ops::Range;
 
+use std::path::PathBuf;
+
 // `Metadata` is really only used for parsing; it's the data above the
 // header line in the genome data.
 #[derive(Debug, PartialEq)]
@@ -445,8 +447,8 @@ impl Dataset {
         (has_mb, strains)
     }
 
-    pub fn read_file(path: &str) -> Dataset {
-        let f = File::open(path).expect(&format!("Error opening file {}", path));
+    pub fn read_file(path: &PathBuf) -> Dataset {
+        let f = File::open(path).expect(&format!("Error opening file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -548,8 +550,8 @@ pub struct Traits {
 }
 
 impl Traits {
-    pub fn read_file(path: &str) -> Traits {
-        let f = File::open(path).expect(&format!("Error opening traits file {}", path));
+    pub fn read_file(path: &PathBuf) -> Traits {
+        let f = File::open(path).expect(&format!("Error opening traits file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
