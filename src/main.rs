@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process;
 
 use qtlreaper::geneobject;
+use qtlreaper::regression;
 
 /*
 The original code has a lot of reference cycles and stuff,
@@ -90,16 +91,83 @@ fn main() {
 
     let dataset = geneobject::Dataset::read_file(&config.genotype_file);
 
+    for (chr, loci) in dataset.chromosomes().iter() {
+        for locus in loci.iter() {
+            let genotypes = locus.genotypes();
+            println!("Locus(\"{}\", {:?})", locus.marker.name, genotypes);
+        }
+    }
+
     println!("Parsed genotype file {}", config.genotype_file);
 
     println!("Dataset has strains: ");
 
     dataset.strains().iter().for_each(|s| println!("{}", s));
 
-    geneobject::Traits::read_file("examples/data/input/trait.txt");
+    let traits = geneobject::Traits::read_file("examples/data/input/trait_one.txt");
     // for strain in dataset.strains.iter() {
 
     // }
+
+    /*
+    for qtl in qtlresults:
+          fout_qtl.write("%s\t%s\t%s\t%2.3f\t%2.3f\t%2.3f\t\n" % (traitName,
+              qtl.locus.name, qtl.locus.chr, qtl.locus.cM, qtl.lrs, qtl.additive))
+    */
+
+    let mut fout = File::create("output.txt").unwrap();
+
+    fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n");
+
+    for (name, values) in traits.traits.iter() {
+        let qtls = regression::regression(&dataset, values, &traits.strains);
+        let permu = regression::permutation(&dataset, values);
+
+        // for p in permu.iter() {
+        //     println!("{}", p);
+        // }
+
+        for qtl in qtls.iter() {
+            // println!(
+            //     "{}\t{}\t{}\t{}\t{}\t{}",
+            //     name,
+            //     qtl.marker.name,
+            //     qtl.marker.chromosome,
+            //     qtl.marker.centi_morgan,
+            //     qtl.lrs,
+            //     qtl.additive
+            // )
+
+            let pvalue = regression::pvalue(qtl.lrs, &permu);
+            let line = format!(
+                "{}\t{}\t{}\t{:.*}\t{:.*}\t{:.*}\t{:.*}\n",
+                name,
+                qtl.marker.name,
+                qtl.marker.chromosome,
+                3,
+                qtl.marker.centi_morgan,
+                3,
+                qtl.lrs,
+                3,
+                qtl.additive,
+                3,
+                pvalue
+            );
+
+            fout.write(line.as_bytes()).unwrap();
+        }
+    }
+    // let
+    // regression::regression(dataset,
+
+    // let vec_in = vec![1, 2, 3, 4, 5, 6];
+    // let vec_perm = regression::permuted(&vec_in);
+
+    // println!("before:");
+    // println!("{:?}\n", vec_in);
+
+    // println!("after:");
+    // println!("{:?}\n", vec_perm);
 
     /*
     println!("--------------");

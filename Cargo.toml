@@ -5,7 +5,4 @@ authors = ["Christian Fischer <christian@chfi.se>"]
 edition = "2018"
 
 [dependencies]
-nalgebra = "0.18"
-# ndarray = { version = "0.12.1", features = ["blas"] }
-# blas-src = { version = "0.2.0", default-features = false, features = ["openblas"] }
-# openblas-src = { version = "0.6.0", default-features = false, features = ["cblas", "system"] }
+rand = "0.6"

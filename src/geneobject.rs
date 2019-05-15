@@ -141,13 +141,22 @@ impl DatasetHeader {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct Marker {
+    pub name: String,
+    pub centi_morgan: f64,
+    pub mega_basepair: Option<f64>,
+    pub chromosome: String,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Locus {
-    pub name: String,
+    // pub name: String,
     dominance: Option<Vec<f64>>,
     pub genotype: Vec<(Genotype, f64)>,
-    centi_morgan: f64,
-    mega_basepair: Option<f64>,
+    // pub centi_morgan: f64,
+    // pub mega_basepair: Option<f64>,
+    pub marker: Marker,
 }
 
 /// UnknownIntervals holds a list of ranges of unknown genotypes, per strain
@@ -171,6 +180,18 @@ impl Locus {
         let chromosome = String::from(words[0]);
         let name = String::from(words[1]);
         let centi_morgan = words[2].parse::<f64>().unwrap();
+        let mega_basepair = if header.has_mb {
+            words[3].parse::<f64>().ok()
+        } else {
+            None
+        };
+
+        let marker = Marker {
+            name,
+            centi_morgan,
+            mega_basepair,
+            chromosome: chromosome.clone(),
+        };
 
         let range = if header.has_mb { 4.. } else { 3.. };
 
@@ -193,11 +214,9 @@ impl Locus {
         (
             chromosome,
             Locus {
-                name,
-                centi_morgan,
                 genotype,
                 dominance,
-                mega_basepair: None,
+                marker,
             },
         )
     }
@@ -307,7 +326,17 @@ impl Locus {
     }
 
     pub fn cm(&self) -> f64 {
-        self.centi_morgan
+        self.marker.centi_morgan
+    }
+
+    // pub fn genotypes(&self) -> &[f64] {
+    pub fn genotypes(&self) -> Vec<f64> {
+        self.genotype.iter().map(|(_, g)| *g).collect()
+    }
+
+    pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
+        // vec![self.genotype[5].1]
+        strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
     }
 }
 
@@ -348,6 +377,17 @@ impl Dataset {
 
     pub fn strains(&self) -> &[String] {
         &self.strains
+    }
+
+    pub fn strain_indices(&self, strains: &[String]) -> Vec<usize> {
+        strains
+            .iter()
+            .map(|s| self.strains.iter().position(|p| p == s).unwrap())
+            .collect()
+    }
+
+    pub fn n_loci(&self) -> usize {
+        self.chromosomes.iter().map(|(_, loci)| loci.len()).sum()
     }
 
     pub fn read_file(path: &str) -> Dataset {
@@ -444,16 +484,17 @@ pub struct QTL {
     pub lrs: f64,
     pub additive: f64,
     pub dominance: Option<f64>,
-    pub locus: Locus,
+    pub marker: Marker,
+    // pub locus: Locus,
 }
 
 impl QTL {
-    pub fn new(locus: Locus, lrs: f64, additive: f64, dominance: Option<f64>) -> QTL {
+    pub fn new(marker: Marker, lrs: f64, additive: f64, dominance: Option<f64>) -> QTL {
         QTL {
             lrs,
             additive,
             dominance,
-            locus,
+            marker,
         }
     }
 }
@@ -480,8 +521,8 @@ fn parse_tab_delim_line(line: &str) -> Vec<String> {
 }
 
 pub struct Traits {
-    strains: Vec<String>,
-    traits: HashMap<String, Vec<f64>>,
+    pub strains: Vec<String>,
+    pub traits: Vec<(String, Vec<f64>)>,
 }
 
 impl Traits {
@@ -506,14 +547,15 @@ impl Traits {
             }
         };
 
-        let mut traits = HashMap::new();
+        // let mut traits = HashMap::new();
+        let mut traits = Vec::new();
 
         for line in lines {
             let ll = line.unwrap();
             let mut words = ll.split_terminator('\t');
             let key = words.next().unwrap().to_string();
             let values = words.map(|s| s.parse::<f64>().unwrap()).collect();
-            traits.insert(key, values);
+            traits.push((key, values));
         }
 
         println!("parsed strains: {:?}", strains);
@@ -681,11 +723,14 @@ mod tests {
         ];
 
         let mk_locus = |name, cm, genotype| Locus {
-            name: String::from(name),
+            marker: Marker {
+                name: String::from(name),
+                centi_morgan: cm,
+                mega_basepair: None,
+                chromosome: String::from("1"),
+            },
             dominance: None,
             genotype,
-            centi_morgan: cm,
-            mega_basepair: None,
         };
 
         let loci_new = vec![
