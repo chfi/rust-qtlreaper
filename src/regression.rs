@@ -118,7 +118,6 @@ pub fn permutation(
     strains: &Vec<String>,
     n_perms: usize,
     threads: usize,
-    // parallel: bool,
 ) -> Vec<f64> {
     let threads = std::cmp::max(threads, 1);
     let lrs_thresh = -1.0;
@@ -134,10 +133,11 @@ pub fn permutation(
         let mut p_traits = permuted(traits);
         (0..(n_perms / threads)).for_each(|_| {
             let mut lrs_max = 0.0;
+            let mut genotypes = vec![0.0; strain_ixs.len()];
 
             for loci in dataset.genome.iter() {
                 for locus in loci.iter() {
-                    let genotypes = locus.genotypes_subset(&strain_ixs);
+                    locus.genotypes_subindices(&strain_ixs, &mut genotypes);
                     let reg_result = regression_2n(&p_traits, &genotypes);
 
                     if lrs_max < reg_result.lrs {

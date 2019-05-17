@@ -126,7 +126,7 @@ pub enum Genotype {
 #[derive(Debug, PartialEq)]
 pub struct Locus {
     dominance: Option<Vec<f64>>,
-    genotype: Vec<(Genotype, f64)>,
+    pub genotype: Vec<(Genotype, f64)>,
     pub marker: Marker,
 }
 
@@ -303,6 +303,12 @@ impl Locus {
     // allocating this every step is probably slowing things down (it was twice as fast without)
     pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
         strain_ixs.iter().map(|ix| self.genotype[*ix].1).collect()
+    }
+
+    pub fn genotypes_subindices(&self, indices: &[usize], subset: &mut Vec<f64>) {
+        for (data_ix, ix) in indices.into_iter().enumerate() {
+            subset[data_ix] = self.genotype[*ix].1;
+        }
     }
 
     pub fn dominance_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {

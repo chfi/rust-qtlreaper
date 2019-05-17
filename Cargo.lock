@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "qtlreaper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
