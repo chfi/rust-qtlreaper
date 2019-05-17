@@ -1,5 +1,6 @@
 use crate::geneobject::{Dataset, Genotype, QTL};
 use rand::Rng;
+use rayon::prelude::*;
 
 pub struct RegResult {
     lrs: f64,
@@ -111,32 +112,46 @@ pub fn regression(
     result
 }
 
-pub fn permutation(dataset: &Dataset, traits: &Vec<f64>, strains: &Vec<String>) -> Vec<f64> {
+pub fn permutation(
+    dataset: &Dataset,
+    traits: &Vec<f64>,
+    strains: &Vec<String>,
+    n_perms: usize,
+    threads: usize,
+    // parallel: bool,
+) -> Vec<f64> {
+    let threads = std::cmp::max(threads, 1);
     let lrs_thresh = -1.0;
     let top_n = 10;
-    let n_step = 1000;
 
     let strain_ixs = dataset.strain_indices(strains);
-    let mut lrs_vec = Vec::with_capacity(n_step);
-    let mut p_traits = permuted(traits);
 
-    for _ in 0..n_step {
-        let mut lrs_max = 0.0;
+    let mut lrs_vec = Vec::with_capacity(n_perms);
 
-        for loci in dataset.genome.iter() {
-            for locus in loci.iter() {
-                let genotypes = locus.genotypes_subset(&strain_ixs);
-                let reg_result = regression_2n(traits, &genotypes);
+    let mut vecs = Vec::with_capacity(threads);
+    vecs.par_extend((0..threads).into_par_iter().map(|_| {
+        let mut temp_vec = Vec::with_capacity(n_perms / 4);
+        let mut p_traits = permuted(traits);
+        (0..(n_perms / threads)).for_each(|_| {
+            let mut lrs_max = 0.0;
 
-                if lrs_max < reg_result.lrs {
-                    lrs_max = reg_result.lrs;
+            for loci in dataset.genome.iter() {
+                for locus in loci.iter() {
+                    let genotypes = locus.genotypes_subset(&strain_ixs);
+                    let reg_result = regression_2n(&p_traits, &genotypes);
+
+                    if lrs_max < reg_result.lrs {
+                        lrs_max = reg_result.lrs;
+                    }
                 }
             }
-        }
+            temp_vec.push(lrs_max);
 
-        permuted_mut(&mut p_traits);
-        lrs_vec.push(lrs_max);
-    }
+            permuted_mut(&mut p_traits);
+        });
+        temp_vec.into_iter()
+    }));
+    lrs_vec = vecs.into_iter().flatten().collect();
 
     lrs_vec.sort_by(|x, y| x.partial_cmp(y).unwrap());
     lrs_vec
@@ -307,7 +322,7 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
 
 // this one will require a bit more work since it actually uses matrices!
 /*
-pub fn regression_3n(
+fn regression_3n(
     traits: &[f64],
     genotypes: &[f64],
     controls: &[f64],

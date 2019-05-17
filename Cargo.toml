@@ -1,9 +1,10 @@
 [package]
 name = "qtlreaper"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Christian Fischer <christian@chfi.se>"]
 edition = "2018"
 
 [dependencies]
 rand = "0.6"
 structopt = "0.2"
+rayon = "1.0.3"

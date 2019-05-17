@@ -27,6 +27,22 @@ struct Opt {
         default_value = "output.txt"
     )]
     output_file: PathBuf,
+
+    #[structopt(
+        short = "n",
+        long = "n_permutations",
+        long_help = r"number of permutations",
+        default_value = "1000"
+    )]
+    n_permutations: usize,
+
+    #[structopt(
+        short = "t",
+        long = "threads",
+        long_help = r"number of threads to use",
+        default_value = "1"
+    )]
+    threads: usize,
 }
 
 fn main() {
@@ -53,7 +69,13 @@ fn main() {
             &traits.strains,
             opt.control.as_ref().map(|s| &**s),
         );
-        let permu = regression::permutation(&dataset, values, &traits.strains);
+        let permu = regression::permutation(
+            &dataset,
+            values,
+            &traits.strains,
+            opt.n_permutations,
+            opt.threads,
+        );
 
         for qtl in qtls.iter() {
             let pvalue = regression::pvalue(qtl.lrs, &permu);
