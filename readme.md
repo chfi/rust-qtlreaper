@@ -41,3 +41,13 @@ OPTIONS:
 ```
 qtlreaper --geno examples/data/input/BXD.txt --traits examples/data/input/trait.txt -o output
 ```
+
+
+####### TODO
+
+- [ ] `addinterval`
+- [ ] `addparentsf1`
+- [ ] `bootstrap`
+- [X] configurable number of permutations
+- [ ] configurable LRS threshold on permutations
+- [ ] abort permutations when LRS threshold reached

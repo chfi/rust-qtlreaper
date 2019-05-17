@@ -115,6 +115,14 @@ pub struct Marker {
     pub chromosome: String,
 }
 
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub enum Genotype {
+    Mat,
+    Pat,
+    Het,
+    Unk,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Locus {
     dominance: Option<Vec<f64>>,
@@ -292,11 +300,7 @@ impl Locus {
         self.marker.centi_morgan
     }
 
-    // This is probably what is slowing things down
-    // pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<(Genotype, f64)> {
-    //     strain_ixs.iter().map(|ix| self.genotype[*ix]).collect()
-    // }
-
+    // allocating this every step is probably slowing things down (it was twice as fast without)
     pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
         strain_ixs.iter().map(|ix| self.genotype[*ix].1).collect()
     }
@@ -313,7 +317,7 @@ impl Locus {
 
 pub struct Genome {
     chr_order: Vec<String>,
-    pub chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
+    chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
 }
 
 /// Iterator that steps through the genome in order
@@ -380,29 +384,18 @@ impl Genome {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-pub enum Genotype {
-    Mat,
-    Pat,
-    Het,
-    Unk,
-}
-
-// #[derive(Debug)]
 pub struct Dataset {
     metadata: Metadata,
-    has_mb: bool,
     pub genome: Genome,
     strains: Vec<String>,
     pub dominance: bool, // true if dataset type is "intercross"
 }
 
 impl Dataset {
-    fn new(metadata: Metadata, has_mb: bool, strains: Vec<String>) -> Dataset {
+    fn new(metadata: Metadata, strains: Vec<String>) -> Dataset {
         let dominance = metadata.dataset_type == String::from("intercross");
         Dataset {
             metadata,
-            has_mb,
             strains,
             genome: Genome::new(),
             dominance,
@@ -477,7 +470,7 @@ impl Dataset {
 
         let metadata = Metadata::from_lines(metadata_lines.iter().map(|s| s.as_str()).collect());
 
-        let mut dataset = Dataset::new(metadata, has_mb, strains);
+        let mut dataset = Dataset::new(metadata, strains);
 
         for line in lines {
             let (chr, locus) =
