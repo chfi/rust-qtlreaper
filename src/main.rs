@@ -55,10 +55,10 @@ fn main() {
     let mut fout = File::create(opt.output_file).unwrap();
 
     if dataset.dominance {
-        fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tDominance\tpValue\n")
+        fout.write_all(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tDominance\tpValue\n")
             .unwrap();
     } else {
-        fout.write(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
+        fout.write_all(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
             .unwrap();
     }
 
@@ -114,7 +114,7 @@ fn main() {
                 )
             };
 
-            fout.write(line.as_bytes()).unwrap();
+            fout.write_all(line.as_bytes()).unwrap();
         }
     }
 }

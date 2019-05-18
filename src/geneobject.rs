@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -35,13 +34,9 @@ impl Metadata {
     }
 
     fn parse_dominance(&self, geno: &str) -> f64 {
-        if geno == self.maternal.as_str() {
+        if geno == self.maternal.as_str() || geno == self.paternal.as_str() {
             0.0
-        } else if geno == self.paternal.as_str() {
-            0.0
-        } else if geno == self.heterozygous.as_str() {
-            1.0
-        } else if geno == self.unknown.as_str() {
+        } else if geno == self.heterozygous.as_str() || geno == self.unknown.as_str() {
             1.0
         } else {
             panic!("Failed to parse genotype: {}\n{:?}", geno, self);
@@ -49,11 +44,11 @@ impl Metadata {
     }
 
     fn parse_line(line: &str) -> Option<(&str, &str)> {
-        if line.starts_with("#") {
+        if line.starts_with('#') {
             return None;
         }
 
-        if line.starts_with("@") {
+        if line.starts_with('@') {
             let sep = line.find(':').unwrap();
             let name = &line[1..sep];
             let val = &line[sep + 1..];
@@ -205,11 +200,9 @@ impl Locus {
                     None => state.0[strain_ix] = Some(ix),
                     Some(start) => state.0[strain_ix] = Some(start),
                 }
-            } else {
-                if let Some(start) = state.0[strain_ix] {
-                    state.1[strain_ix].push(start..ix);
-                    state.0[strain_ix] = None;
-                }
+            } else if let Some(start) = state.0[strain_ix] {
+                state.1[strain_ix].push(start..ix);
+                state.0[strain_ix] = None;
             }
         }
     }
@@ -306,7 +299,7 @@ impl Locus {
     }
 
     pub fn genotypes_subindices(&self, indices: &[usize], subset: &mut Vec<f64>) {
-        for (data_ix, ix) in indices.into_iter().enumerate() {
+        for (data_ix, ix) in indices.iter().enumerate() {
             subset[data_ix] = self.genotype[*ix].1;
         }
     }
@@ -336,7 +329,7 @@ impl<'a> Iterator for GenomeIter<'a> {
     type Item = &'a Vec<Locus>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.keys.len() == 0 {
+        if self.keys.is_empty() {
             None
         } else {
             let chr = self.keys.remove(0);
@@ -354,11 +347,11 @@ impl Genome {
     }
 
     fn or_push_chromosome(&mut self, chr: String) -> &mut Vec<Locus> {
-        if let None = self.chr_order.iter().find(|&c| c == &chr) {
+        if self.chr_order.iter().find(|&c| c == &chr).is_none() {
             self.chr_order.push(chr.clone());
         }
 
-        self.chromosomes.entry(chr).or_insert_with(|| Vec::new())
+        self.chromosomes.entry(chr).or_insert_with(Vec::new)
     }
 
     fn push_locus(&mut self, chr: String, locus: Locus) {
@@ -366,7 +359,7 @@ impl Genome {
     }
 
     /// Iterates through the chromosomes in the order they were added to the genotype
-    pub fn iter<'a>(&'a self) -> GenomeIter<'a> {
+    pub fn iter(&self) -> GenomeIter<'_> {
         GenomeIter {
             keys: self.chr_order.clone(),
             chromosomes: &self.chromosomes,
@@ -374,7 +367,7 @@ impl Genome {
     }
 
     /// Mutably iterates through the chromosomes, using the arbitrary order from HashMap
-    fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = (&'a String, &'a mut Vec<Locus>)> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&'_ String, &'_ mut Vec<Locus>)> {
         self.chromosomes.iter_mut()
     }
 
@@ -399,7 +392,7 @@ pub struct Dataset {
 
 impl Dataset {
     fn new(metadata: Metadata, strains: Vec<String>) -> Dataset {
-        let dominance = metadata.dataset_type == String::from("intercross");
+        let dominance = metadata.dataset_type == "intercross";
         Dataset {
             metadata,
             strains,
@@ -440,14 +433,14 @@ impl Dataset {
         let strains = header_words
             .into_iter()
             .skip(skip_n)
-            .map(|s| String::from(s))
+            .map(String::from)
             .collect();
 
         (has_mb, strains)
     }
 
     pub fn read_file(path: &PathBuf) -> Dataset {
-        let f = File::open(path).expect(&format!("Error opening file {:?}", path));
+        let f = File::open(path).unwrap_or_else(|_| panic!("Error opening file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -474,7 +467,7 @@ impl Dataset {
             }
         }
 
-        let metadata = Metadata::from_lines(metadata_lines.iter().map(|s| s.as_str()).collect());
+        let metadata = Metadata::from_lines(metadata_lines.iter().map(String::as_str).collect());
 
         let mut dataset = Dataset::new(metadata, strains);
 
@@ -550,7 +543,7 @@ pub struct Traits {
 
 impl Traits {
     pub fn read_file(path: &PathBuf) -> Traits {
-        let f = File::open(path).expect(&format!("Error opening traits file {:?}", path));
+        let f = File::open(path).unwrap_or_else(|_| panic!("Error opening traits file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -562,7 +555,7 @@ impl Traits {
                 if ll.starts_with("Trait") {
                     ll.split_terminator('\t')
                         .skip(1)
-                        .map(|s| s.to_string())
+                        .map(ToString::to_string)
                         .collect()
                 } else {
                     panic!("Traits file did not begin with \"Trait\", aborting");
@@ -701,7 +694,7 @@ mod tests {
     #[test]
     fn it_can_estimate_unknown_genotypes() {
         // let mut chromosomes = HashMap::new();
-        let strains = vec!["S1".to_string(), "S2".to_string(), "S3".to_string()];
+        let _strains = vec!["S1".to_string(), "S2".to_string(), "S3".to_string()];
 
         let genos = vec![
             vec![

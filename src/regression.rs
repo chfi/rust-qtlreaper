@@ -1,4 +1,4 @@
-use crate::geneobject::{Dataset, Genotype, QTL};
+use crate::geneobject::{Dataset, QTL};
 use rand::Rng;
 use rayon::prelude::*;
 
@@ -8,11 +8,11 @@ pub struct RegResult {
     dominance: Option<f64>,
 }
 
-fn permuted<T>(data: &Vec<T>) -> Vec<T>
+fn permuted<T>(data: &[T]) -> Vec<T>
 where
     T: Copy,
 {
-    let mut result = data.clone();
+    let mut result = data.to_owned();
     let n = data.len();
 
     for ix in 0..n {
@@ -57,8 +57,8 @@ pub fn pvalue(lrs: f64, permutations: &[f64]) -> f64 {
 // TODO: add support for providing a list of strain names to include
 pub fn regression(
     dataset: &Dataset,
-    traits: &Vec<f64>,
-    strains: &Vec<String>,
+    traits: &[f64],
+    strains: &[String],
     control: Option<&str>,
 ) -> Vec<QTL> {
     //
@@ -114,18 +114,16 @@ pub fn regression(
 
 pub fn permutation(
     dataset: &Dataset,
-    traits: &Vec<f64>,
-    strains: &Vec<String>,
+    traits: &[f64],
+    strains: &[String],
     n_perms: usize,
     threads: usize,
 ) -> Vec<f64> {
     let threads = std::cmp::max(threads, 1);
-    let lrs_thresh = -1.0;
-    let top_n = 10;
+    // let lrs_thresh = -1.0;
+    // let top_n = 10;
 
     let strain_ixs = dataset.strain_indices(strains);
-
-    let mut lrs_vec = Vec::with_capacity(n_perms);
 
     let mut vecs = Vec::with_capacity(threads);
     vecs.par_extend((0..threads).into_par_iter().map(|_| {
@@ -139,10 +137,7 @@ pub fn permutation(
                 for locus in loci.iter() {
                     locus.genotypes_subindices(&strain_ixs, &mut genotypes);
                     let reg_result = regression_2n(&p_traits, &genotypes);
-
-                    if lrs_max < reg_result.lrs {
-                        lrs_max = reg_result.lrs;
-                    }
+                    lrs_max = reg_result.lrs.max(lrs_max);
                 }
             }
             temp_vec.push(lrs_max);
@@ -151,7 +146,7 @@ pub fn permutation(
         });
         temp_vec.into_iter()
     }));
-    lrs_vec = vecs.into_iter().flatten().collect();
+    let mut lrs_vec: Vec<_> = vecs.into_iter().flatten().collect();
 
     lrs_vec.sort_by(|x, y| x.partial_cmp(y).unwrap());
     lrs_vec
