@@ -175,13 +175,13 @@ fn regression_2n(traits: &[f64], genotypes: &[f64]) -> RegResult {
 }
 
 fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -> RegResult {
-    let mut sigYV = 0.0;
-    let mut sigYYV = 0.0;
-    let mut sigXV = 0.0;
-    let mut sigXXV = 0.0;
-    let mut sigXYV = 0.0;
+    let mut sig_yv = 0.0;
+    let mut sig_yyv = 0.0;
+    let mut sig_xv = 0.0;
+    let mut sig_xxv = 0.0;
+    let mut sig_xyv = 0.0;
 
-    let mut sig1V = 0.0;
+    let mut sig_1v = 0.0;
 
     let n_strains = traits.len();
 
@@ -189,22 +189,23 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
         let temp0 = 1.0 / variance[ix];
         let temp1 = traits[ix];
         let temp2 = genotypes[ix];
-        sig1V += temp0;
+        sig_1v += temp0;
         let temp = temp1 * temp0;
-        sigYV += temp;
-        sigYYV += temp1 * temp;
-        sigXYV += temp * temp2;
+        sig_yv += temp;
+        sig_yyv += temp1 * temp;
+        sig_xyv += temp * temp2;
         let temp = temp2 * temp0;
-        sigXV += temp;
-        sigXXV += temp * temp2;
+        sig_xv += temp;
+        sig_xxv += temp * temp2;
     }
 
-    let d = sigXXV - sigXV * sigXV / sig1V;
-    let tss = sigYYV - (sigYV * sigYV) / sig1V;
-    let a = (sigXXV * sigYV - sigXV * sigXYV) / (sig1V * d);
-    let mut b = (sigXYV - (sigXV * sigYV / sig1V)) / d;
-    let rss =
-        sigYYV + a * (sig1V * a - 2.0 * sigYV) + b * (2.0 * a * sigXV + b * sigXXV - 2.0 * sigXYV);
+    let d = sig_xxv - sig_xv * sig_xv / sig_1v;
+    let tss = sig_yyv - (sig_yv * sig_yv) / sig_1v;
+    let a = (sig_xxv * sig_yv - sig_xv * sig_xyv) / (sig_1v * d);
+    let mut b = (sig_xyv - (sig_xv * sig_yv / sig_1v)) / d;
+    let rss = sig_yyv
+        + a * (sig_1v * a - 2.0 * sig_yv)
+        + b * (2.0 * a * sig_xv + b * sig_xxv - 2.0 * sig_xyv);
     let mut lrs = (n_strains as f64) * (tss / rss).ln();
 
     if lrs.is_nan() || lrs < 0.0 {
@@ -220,15 +221,15 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
 }
 
 fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
-    let mut sigC = 0.0;
-    let mut sigX = 0.0;
-    let mut sigY = 0.0;
-    let mut sigCC = 0.0;
-    let mut sigXX = 0.0;
-    let mut sigYY = 0.0;
-    let mut sigXC = 0.0;
-    let mut sigCY = 0.0;
-    let mut sigXY = 0.0;
+    let mut sig_c = 0.0;
+    let mut sig_x = 0.0;
+    let mut sig_y = 0.0;
+    let mut sig_cc = 0.0;
+    let mut sig_xx = 0.0;
+    let mut sig_yy = 0.0;
+    let mut sig_xc = 0.0;
+    let mut sig_cy = 0.0;
+    let mut sig_xy = 0.0;
 
     let n_strains = traits.len();
     let n = n_strains as f64;
@@ -237,42 +238,42 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
         let a = controls[ix];
         let b = genotypes[ix];
         let y = traits[ix];
-        sigC += a;
-        sigX += b;
-        sigY += y;
-        sigCC += a * a;
-        sigXX += b * b;
-        sigYY += y * y;
-        sigXC += a * b;
-        sigCY += y * a;
-        sigXY += y * b;
+        sig_c += a;
+        sig_x += b;
+        sig_y += y;
+        sig_cc += a * a;
+        sig_xx += b * b;
+        sig_yy += y * y;
+        sig_xc += a * b;
+        sig_cy += y * a;
+        sig_xy += y * b;
     }
 
-    let temp0 = sigXC * sigXC - sigCC * sigXX;
-    let temp1 = sigC * sigXX - sigX * sigXC;
-    let temp2 = sigX * sigCC - sigC * sigXC;
-    let temp3 = sigX * sigX - n * sigXX;
-    let temp4 = n * sigXC - sigC * sigX;
-    let temp5 = sigC * sigC - n * sigCC;
-    let temp6 = temp4 * sigXC + temp2 * sigX + temp5 * sigXX;
+    let temp0 = sig_xc * sig_xc - sig_cc * sig_xx;
+    let temp1 = sig_c * sig_xx - sig_x * sig_xc;
+    let temp2 = sig_x * sig_cc - sig_c * sig_xc;
+    let temp3 = sig_x * sig_x - n * sig_xx;
+    let temp4 = n * sig_xc - sig_c * sig_x;
+    let temp5 = sig_c * sig_c - n * sig_cc;
+    let temp6 = temp4 * sig_xc + temp2 * sig_x + temp5 * sig_xx;
 
-    let betak = (temp0 * sigY + temp1 * sigCY + temp2 * sigXY) / temp6;
-    let mut betac = (temp1 * sigY + temp3 * sigCY + temp4 * sigXY) / temp6;
-    let mut betax = (temp2 * sigY + temp4 * sigCY + temp5 * sigXY) / temp6;
+    let betak = (temp0 * sig_y + temp1 * sig_cy + temp2 * sig_xy) / temp6;
+    let mut betac = (temp1 * sig_y + temp3 * sig_cy + temp4 * sig_xy) / temp6;
+    let mut betax = (temp2 * sig_y + temp4 * sig_cy + temp5 * sig_xy) / temp6;
 
-    let ssf = sigYY
-        + betac * (betac * sigCC - 2.0 * sigCY)
-        + betax * (betax * sigXX - 2.0 * sigXY)
-        + 2.0 * betac * betax * sigXC
-        + betak * (n * betak + 2.0 * betac * sigC + 2.0 * betax * sigX - 2.0 * sigY);
+    let ssf = sig_yy
+        + betac * (betac * sig_cc - 2.0 * sig_cy)
+        + betax * (betax * sig_xx - 2.0 * sig_xy)
+        + 2.0 * betac * betax * sig_xc
+        + betak * (n * betak + 2.0 * betac * sig_c + 2.0 * betax * sig_x - 2.0 * sig_y);
 
     let ssr = if diff {
-        let d = sigCC - sigC * sigC / n;
-        let a = (sigCC * sigY - sigC * sigCY) / (n * d);
-        let b = (sigCY - (sigC * sigY / n)) / d;
-        sigYY + a * (n * a - 2.0 * sigY) + b * (2.0 * a * sigC + b * sigCC - 2.0 * sigCY)
+        let d = sig_cc - sig_c * sig_c / n;
+        let a = (sig_cc * sig_y - sig_c * sig_cy) / (n * d);
+        let b = (sig_cy - (sig_c * sig_y / n)) / d;
+        sig_yy + a * (n * a - 2.0 * sig_y) + b * (2.0 * a * sig_c + b * sig_cc - 2.0 * sig_cy)
     } else {
-        sigYY - (sigY * sigY) / n
+        sig_yy - (sig_y * sig_y) / n
     };
 
     let mut lrs = n * (ssr / ssf).ln();
