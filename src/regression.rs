@@ -8,22 +8,7 @@ pub struct RegResult {
     dominance: Option<f64>,
 }
 
-fn permuted<T>(data: &[T]) -> Vec<T>
-where
-    T: Copy,
-{
-    let mut result = data.to_owned();
-    let n = data.len();
-
-    for ix in 0..n {
-        let j = rand::thread_rng().gen_range(0, n);
-        result.swap(ix, j);
-    }
-
-    result
-}
-
-fn permuted_mut<T>(data: &mut Vec<T>) {
+fn permuted_mut<T>(data: &mut [T]) {
     let n = data.len();
     for ix in 0..n {
         let j = rand::thread_rng().gen_range(0, n);
@@ -32,25 +17,14 @@ fn permuted_mut<T>(data: &mut Vec<T>) {
 }
 
 pub fn pvalue(lrs: f64, permutations: &[f64]) -> f64 {
-    let n = permutations.len();
-    let mut i = 0;
-
     let mut temp = Vec::from(permutations);
     temp.sort_by(|x, y| x.partial_cmp(y).unwrap());
-    for val in temp.iter() {
-        if val > &lrs {
-            break;
-        }
-        i += 1;
-    }
 
-    if i == n {
-        0.0
-    } else if i == 0 {
-        1.0
-    } else {
-        1.0 - ((i as f64) / (n as f64))
-    }
+    let i = temp.iter().take_while(|v| **v <= lrs).count();
+    let n = permutations.len();
+
+    // clamp output in [0.0, 1.0] in case of NaN (should never happen)
+    (1.0 - ((i as f64) / (n as f64))).max(0.0).min(1.0)
 }
 
 // TODO: add support for variance and control
@@ -119,7 +93,7 @@ pub fn permutation(
     n_perms: usize,
     threads: usize,
 ) -> Vec<f64> {
-    let threads = std::cmp::max(threads, 1);
+    let threads = threads.max(1);
     // let lrs_thresh = -1.0;
     // let top_n = 10;
 
@@ -128,7 +102,8 @@ pub fn permutation(
     let mut vecs = Vec::with_capacity(threads);
     vecs.par_extend((0..threads).into_par_iter().map(|_| {
         let mut temp_vec = Vec::with_capacity(n_perms / 4);
-        let mut p_traits = permuted(traits);
+        let mut p_traits = Vec::from(traits);
+        permuted_mut(&mut p_traits);
         (0..(n_perms / threads)).for_each(|_| {
             let mut lrs_max = 0.0;
             let mut genotypes = vec![0.0; strain_ixs.len()];

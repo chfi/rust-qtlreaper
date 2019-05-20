@@ -61,24 +61,25 @@ impl Metadata {
 
     // panic!s if the provided lines do not contain @name, @mat, and @pat fields
     fn from_lines(lines: Vec<&str>) -> Metadata {
-        let mut name: Option<String> = None;
-        let mut mat: Option<String> = None;
-        let mut pat: Option<String> = None;
-
+        let mut name = None;
         // the type should be either `riset` or `intercross`; fix later
-        let mut typ: Option<String> = None;
-        let mut het = String::from("H");
-        let mut unk = String::from("U");
+        let mut typ = None;
+
+        let mut mat = None;
+        let mut pat = None;
+        let mut het = "H".into();
+        let mut unk = "U".into();
 
         for line in lines.iter() {
             if let Some((n, v)) = Metadata::parse_line(line) {
+                let val = v.into();
                 match n {
-                    "name" => name = Some(String::from(v)),
-                    "mat" => mat = Some(String::from(v)),
-                    "pat" => pat = Some(String::from(v)),
-                    "type" => typ = Some(String::from(v)),
-                    "het" => het = String::from(v),
-                    "unk" => unk = String::from(v),
+                    "name" => name = Some(val),
+                    "mat" => mat = Some(val),
+                    "pat" => pat = Some(val),
+                    "type" => typ = Some(val),
+                    "het" => het = val,
+                    "unk" => unk = val,
                     _ => (),
                 }
             }
@@ -143,8 +144,8 @@ impl Locus {
 
         let words: Vec<_> = line.split_terminator('\t').collect();
 
-        let chromosome = String::from(words[0]);
-        let name = String::from(words[1]);
+        let chromosome = words[0].to_string();
+        let name = words[1].into();
         let centi_morgan = words[2].parse::<f64>().unwrap();
         let mega_basepair = if has_mb {
             words[3].parse::<f64>().ok()
@@ -582,38 +583,19 @@ impl Traits {
 mod tests {
     use super::*;
 
-    fn header_line() -> String {
-        String::from("Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6")
-    }
-
     #[test]
     fn it_can_parse_header() {
-        let header = header_line();
-
-        let (has_mb_1, strains_1) = Dataset::parse_dataset_header(&header);
+        let header1 = "Chr	Locus	cM	BXD1	BXD2	BXD5	BXD6";
+        let (has_mb_1, strains_1) = Dataset::parse_dataset_header(header1);
 
         assert_eq!(false, has_mb_1);
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], strains_1);
 
-        let (has_mb_2, strains_2) = Dataset::parse_dataset_header(&header);
+        let header2 = "Chr	Locus	cM	Mb	BXD1	BXD2	BXD5	BXD6";
+        let (has_mb_2, strains_2) = Dataset::parse_dataset_header(header2);
 
         assert_eq!(true, has_mb_2);
         assert_eq!(vec!["BXD1", "BXD2", "BXD5", "BXD6"], strains_2);
-    }
-
-    #[test]
-    fn it_can_parse_metadata_lines() {
-        let lines = vec![
-            "#@type:intercross",
-            "@name:BXD",
-            "#abbreviation of maternal or paternal parents",
-            "@mat:B6",
-        ];
-
-        assert_eq!(Metadata::parse_line(lines[0]), None);
-        assert_eq!(Metadata::parse_line(lines[1]), Some(("name", "BXD")));
-        assert_eq!(Metadata::parse_line(lines[2]), None);
-        assert_eq!(Metadata::parse_line(lines[3]), Some(("mat", "B6")));
     }
 
     #[test]
@@ -636,59 +618,14 @@ mod tests {
         assert_eq!(
             Metadata::from_lines(lines),
             Metadata {
-                name: String::from("BXD"),
-                maternal: String::from("B6"),
-                paternal: String::from("D"),
-                dataset_type: String::from("riset"),
-                heterozygous: String::from("H"),
-                unknown: String::from("U"),
+                name: "BXD".into(),
+                maternal: "B6".into(),
+                paternal: "D".into(),
+                dataset_type: "riset".into(),
+                heterozygous: "H".into(),
+                unknown: "U".into(),
             }
         );
-    }
-
-    #[test]
-    fn it_can_find_unknown_intervals_in_many_strains() {
-        let genos = vec![
-            vec![
-                (Genotype::Mat, -1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Pat, 1.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Pat, 1.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-                (Genotype::Pat, 1.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Pat, 1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Pat, 1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Mat, -1.0),
-            ],
-        ];
-
-        let strains = 3;
-        let mut state = (vec![None; strains], vec![Vec::new(); strains]);
-
-        for (geno_ix, genos_line) in genos.iter().enumerate() {
-            Locus::step_many_unknown_intervals_mut(&mut state, (geno_ix, &genos_line));
-        }
-
-        assert_eq!(state.1, vec![vec![1..4], vec![2..4], vec![1..2, 3..5]]);
     }
 
     #[test]
