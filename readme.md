@@ -45,7 +45,7 @@ OPTIONS:
 ###### Example
 
 ```
-qtlreaper --geno examples/data/input/BXD.txt --traits examples/data/input/trait.txt -o output
+qtlreaper --geno tests/data/input/BXD.txt --traits tests/data/input/trait.txt -o output
 ```
 
 
