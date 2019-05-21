@@ -46,6 +46,26 @@ struct Opt {
 }
 
 fn main() {
+    let dataset = geneobject::Dataset::read_file(&PathBuf::from("tests/data/input/BXD_Test.txt"));
+
+    let chromosome = dataset.genome.chromosomes.get("1").unwrap();
+
+    for locus in chromosome {
+        let geno: Vec<_> = locus.genotype.iter().map(|(_, g)| g).collect();
+        println!("{:?}", geno);
+    }
+
+    let new_chr = geneobject::Genome::chromosome_interval(chromosome, 1.0);
+
+    println!("{}", new_chr.len());
+    for locus in new_chr {
+        let geno: Vec<_> = locus.genotype.iter().map(|(_, g)| g).collect();
+        println!("{:?}", geno);
+    }
+    // println!("{:?}", chromosome);
+}
+
+fn main_() {
     let opt = Opt::from_args();
 
     let dataset = geneobject::Dataset::read_file(&opt.genotype_file);

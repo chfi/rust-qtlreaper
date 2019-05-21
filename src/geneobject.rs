@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 // `Metadata` is really only used for parsing; it's the data above the
 // header line in the genome data.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Metadata {
     name: String,
     maternal: String,
@@ -119,7 +119,7 @@ pub enum Genotype {
     Unk,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Locus {
     dominance: Option<Vec<f64>>,
     pub genotype: Vec<(Genotype, f64)>,
@@ -238,7 +238,6 @@ impl Locus {
                     let f2 = (1.0 - f64::exp(-2.0 * rec_2)) / 2.0;
                     let f0 = (1.0 - f64::exp(-2.0 * rec_0)) / 2.0;
 
-                    // NOTE make sure the parens act the same as the C version!!
                     let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
                     let r_1 = f1 * (1.0 - f2) / f0;
                     let r_2 = f2 * (1.0 - f1) / f0;
@@ -315,9 +314,10 @@ impl Locus {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Genome {
     chr_order: Vec<String>,
-    chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
+    pub chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
 }
 
 /// Iterator that steps through the genome in order
@@ -382,8 +382,126 @@ impl Genome {
 
         result
     }
+
+    pub fn chromosome_interval(chromosome: &Vec<Locus>, interval: f64) -> Vec<Locus> {
+        let interval = interval.min(1.0);
+
+        let mut interval_chromosome = Vec::new();
+
+        let find_prev_known = |geno_ix: usize, ix: usize| {
+            let mut j = ix;
+            loop {
+                if j == 0 {
+                    break &chromosome[j];
+                } else {
+                    if chromosome[j].genotype[geno_ix].0 != Genotype::Unk {
+                        break &chromosome[j];
+                    }
+                    j -= 1;
+                }
+            }
+        };
+
+        let find_next_known = |geno_ix: usize, ix: usize| {
+            let mut j = ix + 1;
+            loop {
+                if j == (chromosome.len() - 1) {
+                    break &chromosome[j];
+                } else {
+                    if chromosome[j].genotype[geno_ix].0 != Genotype::Unk {
+                        break &chromosome[j];
+                    }
+                    j += 1;
+                }
+            }
+        };
+
+        chromosome.iter().enumerate().for_each(|(ix, locus)| {
+            let mut cur_cm = locus.cm();
+            let next_locus = &chromosome[std::cmp::min(ix + 1, chromosome.len() - 1)];
+            let mut first = true;
+
+            loop {
+                if first {
+                    interval_chromosome.push(locus.clone());
+                } else {
+                    let mut new_locus = locus.clone();
+                    new_locus.marker.name = String::from(" - ");
+                    for (geno_ix, geno) in locus.genotype.iter().enumerate() {
+                        let prev = find_prev_known(geno_ix, ix);
+                        let next = find_next_known(geno_ix, ix);
+
+                        let m1 = (cur_cm - prev.cm()) / 100.0;
+                        let m2 = (next.cm() - cur_cm) / 100.0;
+                        let m0 = (next.cm() - prev.cm()) / 100.0;
+
+                        let f1 = (1.0 - f64::exp(-2.0 * m1)) / 2.0;
+                        let f2 = (1.0 - f64::exp(-2.0 * m2)) / 2.0;
+                        let f0 = (1.0 - f64::exp(-2.0 * m0)) / 2.0;
+                        let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
+                        let r_1 = f1 * (1.0 - f2) / f0;
+                        let r_2 = f2 * (1.0 - f1) / f0;
+                        let r_3 = f1 * f2 / (1.0 - f0);
+
+                        let prev_geno = prev.genotype[geno_ix].0;
+                        let next_geno = next.genotype[geno_ix].0;
+
+                        let new_geno = match (prev_geno, next_geno) {
+                            (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
+                            (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
+                            (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
+                            (Genotype::Mat, Genotype::Het) => r_1 - r_0,
+                            (Genotype::Het, Genotype::Het) => 0.0,
+                            (Genotype::Pat, Genotype::Het) => r_0 - r_1,
+                            (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
+                            (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
+                            (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
+                            _ => panic!("Genotype was unknown when it shouldn't be!"),
+                        };
+
+                        new_locus.genotype[geno_ix].1 = new_geno;
+
+                        if let Some(dom) = &locus.dominance {
+                            let new_dominance = match (prev_geno, next_geno) {
+                                (Genotype::Mat, Genotype::Mat) => 2.0 * r_0 * r_3,
+                                (Genotype::Het, Genotype::Mat) => r_1 * (r_2 + r_3),
+                                (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
+                                (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
+                                (Genotype::Het, Genotype::Het) => {
+                                    let w =
+                                        ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
+                                    1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
+                                }
+                                (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
+                                (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 * r_2,
+                                (Genotype::Het, Genotype::Pat) => r_1 * (r_2 + r_3),
+                                (Genotype::Pat, Genotype::Pat) => 2.0 * r_1 * r_3,
+                                _ => panic!("Genotype was unknown when it shouldn't be!"),
+                            };
+
+                            if let Some(d) = &mut new_locus.dominance {
+                                d[geno_ix] = new_dominance;
+                            }
+                        }
+                    }
+
+                    interval_chromosome.push(new_locus);
+                }
+
+                cur_cm += interval;
+                first = false;
+
+                if cur_cm >= next_locus.cm() {
+                    break;
+                }
+            }
+        });
+
+        interval_chromosome
+    }
 }
 
+#[derive(Clone, Debug)]
 pub struct Dataset {
     metadata: Metadata,
     pub genome: Genome,
