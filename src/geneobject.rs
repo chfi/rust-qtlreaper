@@ -401,10 +401,7 @@ impl Genome {
         result
     }
 
-    pub fn chromosome_interval(
-        chromosome: &[Locus],
-        interval: f64,
-    ) -> Vec<Locus> {
+    fn chromosome_interval(chromosome: &[Locus], interval: f64) -> Vec<Locus> {
         let interval = interval.min(1.0);
 
         let mut interval_chromosome = Vec::new();
@@ -458,6 +455,19 @@ impl Genome {
 
         interval_chromosome
     }
+
+    fn interval_mapped(&self, interval: f64) -> Genome {
+        let mut chromosomes = HashMap::new();
+        for (chr, loci) in self.chromosomes.iter() {
+            let new_loci = Self::chromosome_interval(&loci, interval);
+            chromosomes.insert(chr.clone(), new_loci);
+        }
+
+        Genome {
+            chr_order: self.chr_order.clone(),
+            chromosomes,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -476,6 +486,17 @@ impl Dataset {
             strains,
             genome: Genome::new(),
             dominance,
+        }
+    }
+
+    /// Corresponds to `addintervals` in C implementation
+    pub fn interval_mapped_clone(&self, interval: f64) -> Dataset {
+        let genome = self.genome.interval_mapped(interval);
+        Dataset {
+            genome,
+            metadata: self.metadata.clone(),
+            strains: self.strains.clone(),
+            dominance: self.dominance,
         }
     }
 
@@ -660,7 +681,6 @@ impl Traits {
             }
         };
 
-        // let mut traits = HashMap::new();
         let mut traits = Vec::new();
 
         for line in lines {
