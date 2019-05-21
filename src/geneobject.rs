@@ -388,32 +388,17 @@ impl Genome {
 
         let mut interval_chromosome = Vec::new();
 
-        let find_prev_known = |geno_ix: usize, ix: usize| {
-            let mut j = ix;
-            loop {
-                if j == 0 {
-                    break &chromosome[j];
-                } else {
-                    if chromosome[j].genotype[geno_ix].0 != Genotype::Unk {
-                        break &chromosome[j];
-                    }
-                    j -= 1;
-                }
-            }
-        };
+        let find_adj_known = |geno_ix: usize, ix: usize| {
+            let (lhs, rhs) = chromosome.split_at(ix + 1);
+            let x = lhs
+                .iter()
+                .rev()
+                .find(|locus| locus.genotype[geno_ix].0 != Genotype::Unk);
+            let y = rhs
+                .iter()
+                .find(|locus| locus.genotype[geno_ix].0 != Genotype::Unk);
 
-        let find_next_known = |geno_ix: usize, ix: usize| {
-            let mut j = ix + 1;
-            loop {
-                if j == (chromosome.len() - 1) {
-                    break &chromosome[j];
-                } else {
-                    if chromosome[j].genotype[geno_ix].0 != Genotype::Unk {
-                        break &chromosome[j];
-                    }
-                    j += 1;
-                }
-            }
+            (x.unwrap(), y.unwrap())
         };
 
         chromosome.iter().enumerate().for_each(|(ix, locus)| {
@@ -428,8 +413,7 @@ impl Genome {
                     let mut new_locus = locus.clone();
                     new_locus.marker.name = String::from(" - ");
                     for (geno_ix, geno) in locus.genotype.iter().enumerate() {
-                        let prev = find_prev_known(geno_ix, ix);
-                        let next = find_next_known(geno_ix, ix);
+                        let (prev, next) = find_adj_known(geno_ix, ix);
 
                         let m1 = (cur_cm - prev.cm()) / 100.0;
                         let m2 = (next.cm() - cur_cm) / 100.0;
