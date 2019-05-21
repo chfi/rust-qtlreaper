@@ -36,7 +36,9 @@ impl Metadata {
     fn parse_dominance(&self, geno: &str) -> f64 {
         if geno == self.maternal.as_str() || geno == self.paternal.as_str() {
             0.0
-        } else if geno == self.heterozygous.as_str() || geno == self.unknown.as_str() {
+        } else if geno == self.heterozygous.as_str()
+            || geno == self.unknown.as_str()
+        {
             1.0
         } else {
             panic!("Failed to parse genotype: {}\n{:?}", geno, self);
@@ -213,13 +215,21 @@ impl Locus {
         let mut state = (vec![None; n_strains], vec![Vec::new(); n_strains]);
 
         for (locus_ix, locus) in loci.iter().enumerate() {
-            Self::step_many_unknown_intervals_mut(&mut state, (locus_ix, &locus.genotype))
+            Self::step_many_unknown_intervals_mut(
+                &mut state,
+                (locus_ix, &locus.genotype),
+            )
         }
 
         UnknownIntervals(state.1)
     }
 
-    fn estimate_unknown_locus(strain_ix: usize, locus: &mut Locus, prev: &Locus, next: &Locus) {
+    fn estimate_unknown_locus(
+        strain_ix: usize,
+        locus: &mut Locus,
+        prev: &Locus,
+        next: &Locus,
+    ) {
         let rec_1 = (locus.cm() - prev.cm()) / 100.0;
         let rec_2 = (next.cm() - locus.cm()) / 100.0;
         let rec_0 = (next.cm() - prev.cm()) / 100.0;
@@ -259,7 +269,8 @@ impl Locus {
                 (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
                 (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
                 (Genotype::Het, Genotype::Het) => {
-                    let w = ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
+                    let w = ((1.0 - f0) * (1.0 - f0))
+                        / (1.0 - 2.0 * f0 * (1.0 - f0));
                     1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
                 }
                 (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
@@ -273,7 +284,10 @@ impl Locus {
         }
     }
 
-    fn estimate_unknown_genotypes(loci: &mut [Locus], intervals: UnknownIntervals) {
+    fn estimate_unknown_genotypes(
+        loci: &mut [Locus],
+        intervals: UnknownIntervals,
+    ) {
         for (strain_ix, strain) in intervals.0.iter().enumerate() {
             for range in strain {
                 for locus_ix in range.clone() {
@@ -295,7 +309,11 @@ impl Locus {
         strain_ixs.iter().map(|ix| self.genotype[*ix].1).collect()
     }
 
-    pub fn genotypes_subindices(&self, indices: &[usize], subset: &mut Vec<f64>) {
+    pub fn genotypes_subindices(
+        &self,
+        indices: &[usize],
+        subset: &mut Vec<f64>,
+    ) {
         for (data_ix, ix) in indices.iter().enumerate() {
             subset[data_ix] = self.genotype[*ix].1;
         }
@@ -365,14 +383,17 @@ impl Genome {
     }
 
     /// Mutably iterates through the chromosomes, using the arbitrary order from HashMap
-    fn iter_mut(&mut self) -> impl Iterator<Item = (&'_ String, &'_ mut Vec<Locus>)> {
+    fn iter_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (&'_ String, &'_ mut Vec<Locus>)> {
         self.chromosomes.iter_mut()
     }
 
     pub fn find_locus(&self, name: &str) -> Option<&Locus> {
         let mut result = None;
         for loci in self.iter() {
-            if let Some(l) = loci.iter().find(|locus| locus.marker.name == name) {
+            if let Some(l) = loci.iter().find(|locus| locus.marker.name == name)
+            {
                 result = Some(l)
             }
         }
@@ -380,7 +401,10 @@ impl Genome {
         result
     }
 
-    pub fn chromosome_interval(chromosome: &[Locus], interval: f64) -> Vec<Locus> {
+    pub fn chromosome_interval(
+        chromosome: &[Locus],
+        interval: f64,
+    ) -> Vec<Locus> {
         let interval = interval.min(1.0);
 
         let mut interval_chromosome = Vec::new();
@@ -400,7 +424,8 @@ impl Genome {
 
         chromosome.iter().enumerate().for_each(|(ix, locus)| {
             let mut cur_cm = locus.cm();
-            let next_locus = &chromosome[std::cmp::min(ix + 1, chromosome.len() - 1)];
+            let next_locus =
+                &chromosome[std::cmp::min(ix + 1, chromosome.len() - 1)];
             let mut first = true;
 
             loop {
@@ -412,7 +437,12 @@ impl Genome {
                     new_locus.marker.centi_morgan = cur_cm;
                     for (geno_ix, geno) in locus.genotype.iter().enumerate() {
                         let (prev, next) = find_adj_known(geno_ix, ix);
-                        Locus::estimate_unknown_locus(geno_ix, &mut new_locus, prev, next);
+                        Locus::estimate_unknown_locus(
+                            geno_ix,
+                            &mut new_locus,
+                            prev,
+                            next,
+                        );
                     }
                     interval_chromosome.push(new_locus);
                 }
@@ -472,7 +502,9 @@ impl Dataset {
         let header_words: Vec<_> = line.split_terminator('\t').collect();
 
         let has_mb = match header_words.get(3) {
-            None => panic!("Dataset header had less than four elements; no strains!"),
+            None => panic!(
+                "Dataset header had less than four elements; no strains!"
+            ),
             Some(w) => *w == "Mb",
         };
 
@@ -488,7 +520,8 @@ impl Dataset {
     }
 
     pub fn read_file(path: &PathBuf) -> Dataset {
-        let f = File::open(path).unwrap_or_else(|_| panic!("Error opening file {:?}", path));
+        let f = File::open(path)
+            .unwrap_or_else(|_| panic!("Error opening file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -500,7 +533,9 @@ impl Dataset {
 
         loop {
             match lines.next() {
-                None => panic!("Reached end of file before parsing dataset header"),
+                None => {
+                    panic!("Reached end of file before parsing dataset header")
+                }
                 Some(l) => {
                     let ll = l.unwrap();
                     if ll.starts_with("Chr	Locus	cM") {
@@ -515,13 +550,19 @@ impl Dataset {
             }
         }
 
-        let metadata = Metadata::from_lines(metadata_lines.iter().map(String::as_str).collect());
+        let metadata = Metadata::from_lines(
+            metadata_lines.iter().map(String::as_str).collect(),
+        );
 
         let mut dataset = Dataset::new(metadata, strains);
 
         for line in lines {
-            let (chr, locus) =
-                Locus::parse_line(&dataset.metadata, has_mb, dataset.dominance, &line.unwrap());
+            let (chr, locus) = Locus::parse_line(
+                &dataset.metadata,
+                has_mb,
+                dataset.dominance,
+                &line.unwrap(),
+            );
             dataset.genome.push_locus(chr, locus);
         }
         dataset.estimate_unknown();
@@ -574,7 +615,12 @@ pub struct QTL {
 }
 
 impl QTL {
-    pub fn new(marker: Marker, lrs: f64, additive: f64, dominance: Option<f64>) -> QTL {
+    pub fn new(
+        marker: Marker,
+        lrs: f64,
+        additive: f64,
+        dominance: Option<f64>,
+    ) -> QTL {
         QTL {
             lrs,
             additive,
@@ -591,7 +637,8 @@ pub struct Traits {
 
 impl Traits {
     pub fn read_file(path: &PathBuf) -> Traits {
-        let f = File::open(path).unwrap_or_else(|_| panic!("Error opening traits file {:?}", path));
+        let f = File::open(path)
+            .unwrap_or_else(|_| panic!("Error opening traits file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -606,7 +653,9 @@ impl Traits {
                         .map(ToString::to_string)
                         .collect()
                 } else {
-                    panic!("Traits file did not begin with \"Trait\", aborting");
+                    panic!(
+                        "Traits file did not begin with \"Trait\", aborting"
+                    );
                 }
             }
         };
@@ -677,9 +726,6 @@ mod tests {
 
     #[test]
     fn it_can_estimate_unknown_genotypes() {
-        // let mut chromosomes = HashMap::new();
-        let _strains = vec!["S1".to_string(), "S2".to_string(), "S3".to_string()];
-
         let genos = vec![
             vec![
                 (Genotype::Mat, -1.0),

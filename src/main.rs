@@ -17,7 +17,11 @@ struct Opt {
     #[structopt(long = "traits")]
     traits_file: PathBuf,
 
-    #[structopt(short = "c", long = "control", long_help = r"control marker name")]
+    #[structopt(
+        short = "c",
+        long = "control",
+        long_help = r"control marker name"
+    )]
     control: Option<String>,
 
     #[structopt(
@@ -46,26 +50,6 @@ struct Opt {
 }
 
 fn main() {
-    let dataset = geneobject::Dataset::read_file(&PathBuf::from("tests/data/input/BXD_Test.txt"));
-
-    let chromosome = dataset.genome.chromosomes.get("1").unwrap();
-
-    for locus in chromosome {
-        let geno: Vec<_> = locus.genotype.iter().map(|(_, g)| g).collect();
-        println!("{:?}", geno);
-    }
-
-    let new_chr = geneobject::Genome::chromosome_interval(chromosome, 1.0);
-
-    println!("{}", new_chr.len());
-    for locus in new_chr {
-        let geno: Vec<_> = locus.genotype.iter().map(|(_, g)| g).collect();
-        println!("{:?}", geno);
-    }
-    // println!("{:?}", chromosome);
-}
-
-fn main_() {
     let opt = Opt::from_args();
 
     let dataset = geneobject::Dataset::read_file(&opt.genotype_file);
@@ -75,8 +59,10 @@ fn main_() {
     let mut fout = File::create(opt.output_file).unwrap();
 
     if dataset.dominance {
-        fout.write_all(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tDominance\tpValue\n")
-            .unwrap();
+        fout.write_all(
+            b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tDominance\tpValue\n",
+        )
+        .unwrap();
     } else {
         fout.write_all(b"ID\tLocus\tChr\tcM\tLRS\tAdditive\tpValue\n")
             .unwrap();

@@ -67,7 +67,9 @@ pub fn regression(
                 }
                 Some(c) => {
                     if dataset.dominance {
-                        panic!("reaper: no composite regression for intercross");
+                        panic!(
+                            "reaper: no composite regression for intercross"
+                        );
                     } else {
                         regression_3n(traits, &genotypes, &c, false)
                     }
@@ -157,8 +159,9 @@ fn regression_2n(traits: &[f64], genotypes: &[f64]) -> RegResult {
     let a = (sig_xx * sig_y - sig_x * sig_xy) / (n * d);
     let mut b = (sig_xy - (sig_x * sig_y / n)) / d;
 
-    let rss =
-        sig_yy + a * (n * a - 2.0 * sig_y) + b * (2.0 * a * sig_x + b * sig_xx - 2.0 * sig_xy);
+    let rss = sig_yy
+        + a * (n * a - 2.0 * sig_y)
+        + b * (2.0 * a * sig_x + b * sig_xx - 2.0 * sig_xy);
 
     let mut lrs = n * (tss / rss).ln();
 
@@ -174,7 +177,11 @@ fn regression_2n(traits: &[f64], genotypes: &[f64]) -> RegResult {
     }
 }
 
-fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -> RegResult {
+fn regression_2n_variance(
+    traits: &[f64],
+    genotypes: &[f64],
+    variance: &[f64],
+) -> RegResult {
     let mut sig_yv = 0.0;
     let mut sig_yyv = 0.0;
     let mut sig_xv = 0.0;
@@ -220,7 +227,12 @@ fn regression_2n_variance(traits: &[f64], genotypes: &[f64], variance: &[f64]) -
     }
 }
 
-fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool) -> RegResult {
+fn regression_3n(
+    traits: &[f64],
+    genotypes: &[f64],
+    controls: &[f64],
+    diff: bool,
+) -> RegResult {
     let mut sig_c = 0.0;
     let mut sig_x = 0.0;
     let mut sig_y = 0.0;
@@ -265,13 +277,17 @@ fn regression_3n(traits: &[f64], genotypes: &[f64], controls: &[f64], diff: bool
         + betac * (betac * sig_cc - 2.0 * sig_cy)
         + betax * (betax * sig_xx - 2.0 * sig_xy)
         + 2.0 * betac * betax * sig_xc
-        + betak * (n * betak + 2.0 * betac * sig_c + 2.0 * betax * sig_x - 2.0 * sig_y);
+        + betak
+            * (n * betak + 2.0 * betac * sig_c + 2.0 * betax * sig_x
+                - 2.0 * sig_y);
 
     let ssr = if diff {
         let d = sig_cc - sig_c * sig_c / n;
         let a = (sig_cc * sig_y - sig_c * sig_cy) / (n * d);
         let b = (sig_cy - (sig_c * sig_y / n)) / d;
-        sig_yy + a * (n * a - 2.0 * sig_y) + b * (2.0 * a * sig_c + b * sig_cc - 2.0 * sig_cy)
+        sig_yy
+            + a * (n * a - 2.0 * sig_y)
+            + b * (2.0 * a * sig_c + b * sig_cc - 2.0 * sig_cy)
     } else {
         sig_yy - (sig_y * sig_y) / n
     };
