@@ -219,71 +219,68 @@ impl Locus {
         UnknownIntervals(state.1)
     }
 
-    fn estimate_unknown_genotypes(
-        dominance: bool,
-        loci: &mut [Locus],
-        intervals: UnknownIntervals,
-    ) {
+    fn estimate_unknown_locus(strain_ix: usize, locus: &mut Locus, prev: &Locus, next: &Locus) {
+        let rec_1 = (locus.cm() - prev.cm()) / 100.0;
+        let rec_2 = (next.cm() - locus.cm()) / 100.0;
+        let rec_0 = (next.cm() - prev.cm()) / 100.0;
+
+        let f1 = (1.0 - f64::exp(-2.0 * rec_1)) / 2.0;
+        let f2 = (1.0 - f64::exp(-2.0 * rec_2)) / 2.0;
+        let f0 = (1.0 - f64::exp(-2.0 * rec_0)) / 2.0;
+
+        let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
+        let r_1 = f1 * (1.0 - f2) / f0;
+        let r_2 = f2 * (1.0 - f1) / f0;
+        let r_3 = f1 * f2 / (1.0 - f0);
+
+        let (prev_geno, _) = prev.genotype[strain_ix];
+        let (next_geno, _) = next.genotype[strain_ix];
+
+        let new_genotype = match (prev_geno, next_geno) {
+            (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
+            (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
+            (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
+            (Genotype::Mat, Genotype::Het) => r_1 - r_0,
+            (Genotype::Het, Genotype::Het) => 0.0,
+            (Genotype::Pat, Genotype::Het) => r_0 - r_1,
+            (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
+            (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
+            (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
+            _ => panic!("Genotype was unknown when it shouldn't be!"),
+        };
+
+        locus.genotype[strain_ix].1 = new_genotype;
+
+        if let Some(d) = &mut locus.dominance {
+            // if dominance {
+            let new_dominance = match (prev_geno, next_geno) {
+                (Genotype::Mat, Genotype::Mat) => 2.0 * r_0 * r_3,
+                (Genotype::Het, Genotype::Mat) => r_1 * (r_2 + r_3),
+                (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
+                (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
+                (Genotype::Het, Genotype::Het) => {
+                    let w = ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
+                    1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
+                }
+                (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
+                (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 * r_2,
+                (Genotype::Het, Genotype::Pat) => r_1 * (r_2 + r_3),
+                (Genotype::Pat, Genotype::Pat) => 2.0 * r_1 * r_3,
+                _ => panic!("Genotype was unknown when it shouldn't be!"),
+            };
+
+            d[strain_ix] = new_dominance;
+        }
+    }
+
+    fn estimate_unknown_genotypes(loci: &mut [Locus], intervals: UnknownIntervals) {
         for (strain_ix, strain) in intervals.0.iter().enumerate() {
             for range in strain {
                 for locus_ix in range.clone() {
-                    let prev = &loci[range.start - 1];
-                    let next = &loci[range.end];
-                    let locus = &loci[locus_ix];
-                    let rec_1 = (locus.cm() - prev.cm()) / 100.0;
-                    let rec_2 = (next.cm() - locus.cm()) / 100.0;
-                    let rec_0 = (next.cm() - prev.cm()) / 100.0;
-
-                    let f1 = (1.0 - f64::exp(-2.0 * rec_1)) / 2.0;
-                    let f2 = (1.0 - f64::exp(-2.0 * rec_2)) / 2.0;
-                    let f0 = (1.0 - f64::exp(-2.0 * rec_0)) / 2.0;
-
-                    let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
-                    let r_1 = f1 * (1.0 - f2) / f0;
-                    let r_2 = f2 * (1.0 - f1) / f0;
-                    let r_3 = f1 * f2 / (1.0 - f0);
-
-                    let (prev_geno, _) = prev.genotype[strain_ix];
-                    let (next_geno, _) = next.genotype[strain_ix];
-
-                    // use Genotype::*;
-
-                    let new_genotype = match (prev_geno, next_geno) {
-                        (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
-                        (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
-                        (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
-                        (Genotype::Mat, Genotype::Het) => r_1 - r_0,
-                        (Genotype::Het, Genotype::Het) => 0.0,
-                        (Genotype::Pat, Genotype::Het) => r_0 - r_1,
-                        (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
-                        (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
-                        (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
-                        _ => panic!("Genotype was unknown when it shouldn't be!"),
-                    };
-
-                    if dominance {
-                        let new_dominance = match (prev_geno, next_geno) {
-                            (Genotype::Mat, Genotype::Mat) => 2.0 * r_0 * r_3,
-                            (Genotype::Het, Genotype::Mat) => r_1 * (r_2 + r_3),
-                            (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
-                            (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
-                            (Genotype::Het, Genotype::Het) => {
-                                let w = ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
-                                1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
-                            }
-                            (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
-                            (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 * r_2,
-                            (Genotype::Het, Genotype::Pat) => r_1 * (r_2 + r_3),
-                            (Genotype::Pat, Genotype::Pat) => 2.0 * r_1 * r_3,
-                            _ => panic!("Genotype was unknown when it shouldn't be!"),
-                        };
-
-                        if let Some(d) = &mut loci[locus_ix].dominance {
-                            d[strain_ix] = new_dominance;
-                        }
-                    }
-
-                    loci[locus_ix].genotype[strain_ix].1 = new_genotype
+                    let prev = &loci[range.start - 1].clone();
+                    let next = &loci[range.end].clone();
+                    let locus = loci.get_mut(locus_ix).unwrap();
+                    Locus::estimate_unknown_locus(strain_ix, locus, prev, next);
                 }
             }
         }
@@ -383,7 +380,7 @@ impl Genome {
         result
     }
 
-    pub fn chromosome_interval(chromosome: &Vec<Locus>, interval: f64) -> Vec<Locus> {
+    pub fn chromosome_interval(chromosome: &[Locus], interval: f64) -> Vec<Locus> {
         let interval = interval.min(1.0);
 
         let mut interval_chromosome = Vec::new();
@@ -412,63 +409,11 @@ impl Genome {
                 } else {
                     let mut new_locus = locus.clone();
                     new_locus.marker.name = String::from(" - ");
+                    new_locus.marker.centi_morgan = cur_cm;
                     for (geno_ix, geno) in locus.genotype.iter().enumerate() {
                         let (prev, next) = find_adj_known(geno_ix, ix);
-
-                        let m1 = (cur_cm - prev.cm()) / 100.0;
-                        let m2 = (next.cm() - cur_cm) / 100.0;
-                        let m0 = (next.cm() - prev.cm()) / 100.0;
-
-                        let f1 = (1.0 - f64::exp(-2.0 * m1)) / 2.0;
-                        let f2 = (1.0 - f64::exp(-2.0 * m2)) / 2.0;
-                        let f0 = (1.0 - f64::exp(-2.0 * m0)) / 2.0;
-                        let r_0 = (1.0 - f1) * (1.0 - f2) / (1.0 - f0);
-                        let r_1 = f1 * (1.0 - f2) / f0;
-                        let r_2 = f2 * (1.0 - f1) / f0;
-                        let r_3 = f1 * f2 / (1.0 - f0);
-
-                        let prev_geno = prev.genotype[geno_ix].0;
-                        let next_geno = next.genotype[geno_ix].0;
-
-                        let new_geno = match (prev_geno, next_geno) {
-                            (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
-                            (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
-                            (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
-                            (Genotype::Mat, Genotype::Het) => r_1 - r_0,
-                            (Genotype::Het, Genotype::Het) => 0.0,
-                            (Genotype::Pat, Genotype::Het) => r_0 - r_1,
-                            (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 - 1.0,
-                            (Genotype::Het, Genotype::Pat) => r_0 + r_1 - 1.0,
-                            (Genotype::Pat, Genotype::Pat) => 2.0 * r_0 - 1.0,
-                            _ => panic!("Genotype was unknown when it shouldn't be!"),
-                        };
-
-                        new_locus.genotype[geno_ix].1 = new_geno;
-
-                        if let Some(dom) = &locus.dominance {
-                            let new_dominance = match (prev_geno, next_geno) {
-                                (Genotype::Mat, Genotype::Mat) => 2.0 * r_0 * r_3,
-                                (Genotype::Het, Genotype::Mat) => r_1 * (r_2 + r_3),
-                                (Genotype::Pat, Genotype::Mat) => 2.0 * r_1 * r_2,
-                                (Genotype::Mat, Genotype::Het) => r_1 * r_0 + r_2 * r_3,
-                                (Genotype::Het, Genotype::Het) => {
-                                    let w =
-                                        ((1.0 - f0) * (1.0 - f0)) / (1.0 - 2.0 * f0 * (1.0 - f0));
-                                    1.0 - 2.0 * w * r_0 * r_3 - 2.0 * (1.0 - w) * r_1 * r_2
-                                }
-                                (Genotype::Pat, Genotype::Het) => r_0 * r_1 + r_2 * r_3,
-                                (Genotype::Mat, Genotype::Pat) => 2.0 * r_1 * r_2,
-                                (Genotype::Het, Genotype::Pat) => r_1 * (r_2 + r_3),
-                                (Genotype::Pat, Genotype::Pat) => 2.0 * r_1 * r_3,
-                                _ => panic!("Genotype was unknown when it shouldn't be!"),
-                            };
-
-                            if let Some(d) = &mut new_locus.dominance {
-                                d[geno_ix] = new_dominance;
-                            }
-                        }
+                        Locus::estimate_unknown_locus(geno_ix, &mut new_locus, prev, next);
                     }
-
                     interval_chromosome.push(new_locus);
                 }
 
@@ -615,7 +560,7 @@ impl Dataset {
 
             // ... and use those intervals to estimate the
             // missing genotypes
-            Locus::estimate_unknown_genotypes(self.dominance, loci, unk);
+            Locus::estimate_unknown_genotypes(loci, unk);
         }
     }
 }
@@ -847,7 +792,7 @@ mod tests {
 
         let unk = Locus::find_unknown_intervals(&loci);
 
-        Locus::estimate_unknown_genotypes(false, &mut loci, unk);
+        Locus::estimate_unknown_genotypes(&mut loci, unk);
 
         assert_eq!(loci, loci_new);
     }
