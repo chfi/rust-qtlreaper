@@ -1,9 +1,10 @@
+use serde::Serialize;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::ops::Range;
-
 use std::path::PathBuf;
 
 // `Metadata` is really only used for parsing; it's the data above the
@@ -46,6 +47,7 @@ impl Metadata {
     }
 
     fn parse_line(line: &str) -> Option<(&str, &str)> {
+        let line = line.trim();
         if line.starts_with('#') {
             return None;
         }
@@ -105,7 +107,7 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct Marker {
     pub name: String,
     pub centi_morgan: f64,
@@ -291,6 +293,7 @@ impl Locus {
         for (strain_ix, strain) in intervals.0.iter().enumerate() {
             for range in strain {
                 for locus_ix in range.clone() {
+                    // wasteful to be cloning here, really
                     let prev = &loci[range.start - 1].clone();
                     let next = &loci[range.end].clone();
                     let locus = loci.get_mut(locus_ix).unwrap();
@@ -402,27 +405,23 @@ impl Genome {
     }
 
     fn chromosome_interval(chromosome: &[Locus], interval: f64) -> Vec<Locus> {
-        let interval = interval.min(1.0);
-
-        let mut interval_chromosome = Vec::new();
-
         let find_adj_known = |geno_ix: usize, ix: usize| {
             let (lhs, rhs) = chromosome.split_at(ix + 1);
-            let x = lhs
-                .iter()
-                .rev()
-                .find(|locus| locus.genotype[geno_ix].0 != Genotype::Unk);
-            let y = rhs
-                .iter()
-                .find(|locus| locus.genotype[geno_ix].0 != Genotype::Unk);
-
-            (x.unwrap(), y.unwrap())
+            let pred =
+                |locus: &&Locus| locus.genotype[geno_ix].0 != Genotype::Unk;
+            let err = "Error when searching for adjacent loci";
+            (
+                lhs.iter().rev().find(pred).expect(err),
+                rhs.iter().find(pred).expect(err),
+            )
         };
+
+        let interval = interval.min(1.0);
+        let mut interval_chromosome = Vec::new();
 
         chromosome.iter().enumerate().for_each(|(ix, locus)| {
             let mut cur_cm = locus.cm();
-            let next_locus =
-                &chromosome[std::cmp::min(ix + 1, chromosome.len() - 1)];
+            let next_locus = &chromosome[(ix + 1).min(chromosome.len() - 1)];
             let mut first = true;
 
             loop {
@@ -432,7 +431,7 @@ impl Genome {
                     let mut new_locus = locus.clone();
                     new_locus.marker.name = String::from(" - ");
                     new_locus.marker.centi_morgan = cur_cm;
-                    for (geno_ix, geno) in locus.genotype.iter().enumerate() {
+                    for (geno_ix, _geno) in locus.genotype.iter().enumerate() {
                         let (prev, next) = find_adj_known(geno_ix, ix);
                         Locus::estimate_unknown_locus(
                             geno_ix,
@@ -476,17 +475,23 @@ pub struct Dataset {
     pub genome: Genome,
     strains: Vec<String>,
     pub dominance: bool, // true if dataset type is "intercross"
+    has_mb: bool,
 }
 
 impl Dataset {
-    fn new(metadata: Metadata, strains: Vec<String>) -> Dataset {
+    fn new(metadata: Metadata, strains: Vec<String>, has_mb: bool) -> Dataset {
         let dominance = metadata.dataset_type == "intercross";
         Dataset {
             metadata,
             strains,
             genome: Genome::new(),
             dominance,
+            has_mb,
         }
+    }
+
+    pub fn has_mb(&self) -> bool {
+        self.has_mb
     }
 
     /// Corresponds to `addintervals` in C implementation
@@ -497,6 +502,7 @@ impl Dataset {
             metadata: self.metadata.clone(),
             strains: self.strains.clone(),
             dominance: self.dominance,
+            has_mb: self.has_mb,
         }
     }
 
@@ -575,7 +581,7 @@ impl Dataset {
             metadata_lines.iter().map(String::as_str).collect(),
         );
 
-        let mut dataset = Dataset::new(metadata, strains);
+        let mut dataset = Dataset::new(metadata, strains, has_mb);
 
         for line in lines {
             let (chr, locus) = Locus::parse_line(
@@ -627,7 +633,7 @@ impl Dataset {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct QTL {
     pub lrs: f64,
     pub additive: f64,
@@ -648,6 +654,33 @@ impl QTL {
             dominance,
             marker,
         }
+    }
+}
+
+// formatter for QTL, used to print the regression output, tab-delimited
+impl fmt::Display for QTL {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}\t{}\t{:.*}",
+            // name,
+            self.marker.name,
+            self.marker.chromosome,
+            3,
+            self.marker.centi_morgan
+        )?;
+
+        if let Some(mb) = self.marker.mega_basepair {
+            write!(f, "\t{:.*}", 3, mb)?;
+        }
+
+        write!(f, "\t{:.*}\t{:.*}", 3, self.lrs, 3, self.additive)?;
+
+        if let Some(d) = self.dominance {
+            write!(f, "\t{:.*}", 3, d)?;
+        }
+
+        Ok(())
     }
 }
 
