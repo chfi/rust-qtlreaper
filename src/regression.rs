@@ -2,6 +2,10 @@ use crate::geneobject::{Dataset, QTL};
 use rand::Rng;
 use rayon::prelude::*;
 
+const PERMUTATION_TESTSIZE: usize = 1000;
+const BOOTSTRAP_TESTSIZE: usize = 1000;
+const MAXPERMUTATION: usize = 1000000;
+
 pub struct RegResult {
     lrs: f64,
     additive: f64,
@@ -14,6 +18,11 @@ fn permuted_mut<T>(data: &mut [T]) {
         let j = rand::thread_rng().gen_range(0, n);
         data.swap(ix, j);
     }
+}
+
+fn bootstrap_indices<T>(v: &[T]) -> Vec<usize> {
+    let n = v.len();
+    (0..n).map(|_| rand::thread_rng().gen_range(0, n)).collect()
 }
 
 pub fn pvalue(lrs: f64, permutations: &[f64]) -> f64 {
@@ -128,6 +137,68 @@ pub fn permutation(
     lrs_vec.sort_by(|x, y| x.partial_cmp(y).unwrap());
     lrs_vec
 }
+
+pub fn bootstrap(
+    dataset: &Dataset,
+    traits: &[f64],
+    strains: &[String],
+    control: Option<&str>,
+    n_boot: usize,
+) -> Vec<usize> {
+    let strain_ixs = dataset.strain_indices(strains);
+    let n = traits.len();
+    let n_loci = dataset.n_loci();
+
+    let n_test = n_boot.max(BOOTSTRAP_TESTSIZE).min(MAXPERMUTATION);
+
+    let mut locus_count = vec![0; n_loci];
+
+    let control_geno: Option<Vec<_>> = control.map(|c| {
+        dataset
+            .genome
+            .find_locus(c)
+            .unwrap()
+            .genotypes_subset(&strain_ixs)
+    });
+
+    for i in 0..n_test {
+        let indices = bootstrap_indices(traits);
+        let b_traits: Vec<_> =
+            indices.iter().cloned().map(|ix| traits[ix]).collect();
+
+        let mut lrs_max = 0.0;
+        let mut l = 0;
+        let mut lrs_max_pos = 0;
+
+        for loci in dataset.genome.iter() {
+            for locus in loci.iter() {
+                let genotypes = locus.genotypes_subset(&strain_ixs);
+                let b_genotypes: Vec<_> =
+                    indices.iter().cloned().map(|ix| genotypes[ix]).collect();
+
+                let reg_result = if let Some(control) = &control_geno {
+                    let b_control: Vec<_> =
+                        indices.iter().cloned().map(|ix| control[ix]).collect();
+                    regression_3n(&b_traits, &b_genotypes, &b_control, true)
+                } else {
+                    // TODO variance
+                    regression_2n(&b_traits, &b_genotypes)
+                };
+
+                if lrs_max < reg_result.lrs {
+                    lrs_max_pos = l;
+                    lrs_max = reg_result.lrs;
+                }
+
+                l += 1;
+            }
+        }
+        locus_count[lrs_max_pos] += 1;
+    }
+
+    locus_count
+}
+
 // `traits` corresponds to `YY`
 // `genotypes` corresponds to `XX`
 fn regression_2n(traits: &[f64], genotypes: &[f64]) -> RegResult {

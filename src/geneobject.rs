@@ -663,7 +663,6 @@ impl fmt::Display for QTL {
         write!(
             f,
             "{}\t{}\t{:.*}",
-            // name,
             self.marker.name,
             self.marker.chromosome,
             3,

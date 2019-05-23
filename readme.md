@@ -51,9 +51,9 @@ qtlreaper --geno tests/data/input/BXD.txt --traits tests/data/input/trait.txt -o
 
 ####### TODO
 
-- [ ] `addinterval`
+- [X] `addinterval`
 - [ ] `addparentsf1`
-- [ ] `bootstrap`
+- [X] `bootstrap`
 - [X] configurable number of permutations
 - [ ] configurable LRS threshold on permutations
 - [ ] abort permutations when LRS threshold reached

@@ -99,6 +99,16 @@ fn main() {
             opt.threads,
         );
 
+        /*
+        let bootstrap = regression::bootstrap(
+            &dataset,
+            values,
+            &traits.strains,
+            None,
+            1000,
+        );
+        */
+
         if opt.output_json {
             for qtl in qtls.iter() {
                 fout.write_all(serde_json::to_string(qtl).unwrap().as_bytes())
