@@ -1,6 +1,6 @@
 [package]
 name = "qtlreaper"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Christian Fischer <christian@chfi.se>"]
 edition = "2018"
 

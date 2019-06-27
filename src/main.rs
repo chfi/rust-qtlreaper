@@ -28,8 +28,8 @@ struct Opt {
 
     #[structopt(
         short = "o",
-        long = "output",
-        long_help = r"output file",
+        long = "main_output",
+        long_help = r"p-values output file",
         default_value = "output.txt"
     )]
     output_file: PathBuf,
@@ -41,6 +41,23 @@ struct Opt {
         default_value = "1000"
     )]
     n_permutations: usize,
+
+    #[structopt(short = "b", long = "bootstrap", long_help = "run bootstrap")]
+    bootstrap: bool,
+
+    #[structopt(
+        long = "bootstrap_output",
+        long_help = r"bootstrap output file",
+        default_value = "bootstrap.txt"
+    )]
+    bootstrap_output: PathBuf,
+
+    #[structopt(
+        long = "n_bootstrap",
+        long_help = r"bootstrap count",
+        default_value = "1000"
+    )]
+    n_bootstrap: usize,
 
     #[structopt(
         short = "t",
@@ -99,16 +116,6 @@ fn main() {
             opt.threads,
         );
 
-        /*
-        let bootstrap = regression::bootstrap(
-            &dataset,
-            values,
-            &traits.strains,
-            None,
-            1000,
-        );
-        */
-
         if opt.output_json {
             for qtl in qtls.iter() {
                 fout.write_all(serde_json::to_string(qtl).unwrap().as_bytes())
@@ -121,6 +128,25 @@ fn main() {
                 let line = format!("{}\t{}\t{:.*}\n", name, qtl, 3, pvalue);
 
                 fout.write_all(line.as_bytes()).unwrap();
+            }
+        }
+    }
+
+    if opt.bootstrap {
+        let mut bootstrap_fout = File::create(opt.bootstrap_output).unwrap();
+
+        for (_name, values) in traits.traits.iter() {
+            let bootstrap = regression::bootstrap(
+                &dataset,
+                values,
+                &traits.strains,
+                None,
+                1000,
+            );
+
+            for bs_line in bootstrap.iter() {
+                let line = format!("{}\n", bs_line);
+                bootstrap_fout.write_all(line.as_bytes()).unwrap();
             }
         }
     }
