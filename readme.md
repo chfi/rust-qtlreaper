@@ -1,7 +1,7 @@
 #### rust-qtlreaper
 
 
-A reimplementation of [genenetwork/QTLReaper] in Rust.
+A reimplementation of [genenetwork/QTLReaper][] in Rust.
 
 Build with `cargo build --release`, output in `target/release`.
 

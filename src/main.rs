@@ -72,6 +72,9 @@ struct Opt {
         long_help = r"output in JSON instead of tab-delimited"
     )]
     output_json: bool,
+
+    #[structopt(long = "interval", long_help = r"use interval mapping")]
+    interval_map: Option<f64>,
 }
 
 fn format_header(dataset: &Dataset) -> String {
@@ -91,7 +94,14 @@ fn format_header(dataset: &Dataset) -> String {
 fn main() {
     let opt = Opt::from_args();
 
-    let dataset = Dataset::read_file(&opt.genotype_file);
+    let dataset = {
+        let d = Dataset::read_file(&opt.genotype_file);
+        if let Some(iv) = opt.interval_map {
+            d.interval_mapped_clone(iv)
+        } else {
+            d
+        }
+    };
 
     let traits = Traits::read_file(&opt.traits_file);
 
