@@ -8,7 +8,7 @@ Build with `cargo build --release`, output in `target/release`.
 ##### Usage
 
 ```
-qtlreaper 0.1.2
+qtlreaper 0.1.3
 Christian Fischer <christian@chfi.se>
 
 USAGE:
@@ -43,6 +43,9 @@ OPTIONS:
 
     -n, --n_permutations <n_permutations>
             number of permutations [default: 1000]
+
+        --permu_output <permu_output_file>
+            permutations output file [default: permutations_output.txt]
 
     -o, --main_output <output_file>
             p-values output file [default: output.txt]

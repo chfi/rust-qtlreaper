@@ -35,6 +35,13 @@ struct Opt {
     output_file: PathBuf,
 
     #[structopt(
+        long = "permu_output",
+        long_help = r"permutations output file",
+        default_value = "permutations_output.txt"
+    )]
+    permu_output_file: PathBuf,
+
+    #[structopt(
         short = "n",
         long = "n_permutations",
         long_help = r"number of permutations",
@@ -107,6 +114,8 @@ fn main() {
 
     let mut fout = File::create(opt.output_file).unwrap();
 
+    let mut permu_fout = File::create(opt.permu_output_file).unwrap();
+
     if !opt.output_json {
         fout.write_all(format_header(&dataset).as_bytes()).unwrap();
     }
@@ -131,6 +140,10 @@ fn main() {
                 fout.write_all(serde_json::to_string(qtl).unwrap().as_bytes())
                     .unwrap();
             }
+
+            permu_fout
+                .write_all(serde_json::to_string(&permu).unwrap().as_bytes())
+                .unwrap();
         } else {
             for qtl in qtls.iter() {
                 let pvalue = regression::pvalue(qtl.lrs, &permu);
@@ -138,6 +151,12 @@ fn main() {
                 let line = format!("{}\t{}\t{:.*}\n", name, qtl, 3, pvalue);
 
                 fout.write_all(line.as_bytes()).unwrap();
+            }
+
+            for p in permu.iter() {
+                permu_fout
+                    .write_all(format!("{:.*}\n", 5, p).as_bytes())
+                    .unwrap();
             }
         }
     }
