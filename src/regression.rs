@@ -80,7 +80,7 @@ pub fn regression(
                             "reaper: no composite regression for intercross"
                         );
                     } else {
-                        regression_3n(traits, &genotypes, &c, false)
+                        regression_3n(traits, &genotypes, &c, true)
                     }
                 }
             };

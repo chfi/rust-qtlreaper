@@ -80,7 +80,10 @@ struct Opt {
     )]
     output_json: bool,
 
-    #[structopt(long = "interval", long_help = r"use interval mapping")]
+    #[structopt(
+        long = "interval",
+        long_help = r"use interval mapping, with given step size in cM"
+    )]
     interval_map: Option<f64>,
 }
 
