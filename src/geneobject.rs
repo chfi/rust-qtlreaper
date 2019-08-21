@@ -1,3 +1,4 @@
+use ndarray::prelude::*;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -20,26 +21,38 @@ struct Metadata {
 }
 
 impl Metadata {
-    fn parse_genotype(&self, geno: &str) -> (Genotype, f64) {
-        if geno == self.maternal.as_str() {
-            (Genotype::Mat, -1.0)
-        } else if geno == self.paternal.as_str() {
-            (Genotype::Pat, 1.0)
-        } else if geno == self.heterozygous.as_str() {
-            (Genotype::Het, 0.0)
-        } else if geno == self.unknown.as_str() {
-            (Genotype::Unk, 99.0)
+    fn parse_genoprob(&self, geno: &str) -> f64 {
+        if geno == self.maternal {
+            -1.0
+        } else if geno == self.paternal {
+            1.0
+        } else if geno == self.heterozygous {
+            0.0
+        } else if geno == self.unknown {
+            99.0
+        } else {
+            panic!("Failed to parse genotype: {}\n{:?}", geno, self);
+        }
+    }
+
+    fn parse_genotype(&self, geno: &str) -> Genotype {
+        if geno == self.maternal {
+            Genotype::Mat
+        } else if geno == self.paternal {
+            Genotype::Pat
+        } else if geno == self.heterozygous {
+            Genotype::Het
+        } else if geno == self.unknown {
+            Genotype::Unk
         } else {
             panic!("Failed to parse genotype: {}\n{:?}", geno, self);
         }
     }
 
     fn parse_dominance(&self, geno: &str) -> f64 {
-        if geno == self.maternal.as_str() || geno == self.paternal.as_str() {
+        if geno == self.maternal || geno == self.paternal {
             0.0
-        } else if geno == self.heterozygous.as_str()
-            || geno == self.unknown.as_str()
-        {
+        } else if geno == self.heterozygous || geno == self.unknown {
             1.0
         } else {
             panic!("Failed to parse genotype: {}\n{:?}", geno, self);
@@ -125,8 +138,9 @@ pub enum Genotype {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Locus {
-    dominance: Option<Vec<f64>>,
-    pub genotype: Vec<(Genotype, f64)>,
+    dominance: Option<Array1<f64>>,
+    pub genotype: Array1<Genotype>,
+    genoprob: Array1<f64>,
     pub marker: Marker,
 }
 
@@ -171,6 +185,11 @@ impl Locus {
             .map(|g| metadata.parse_genotype(g))
             .collect();
 
+        let genoprob = words[range.clone()]
+            .iter()
+            .map(|g| metadata.parse_genoprob(g))
+            .collect();
+
         let dominance = if dominance {
             Some(
                 words[range]
@@ -186,6 +205,7 @@ impl Locus {
             chromosome,
             Locus {
                 genotype,
+                genoprob,
                 dominance,
                 marker,
             },
@@ -195,11 +215,11 @@ impl Locus {
     /// Steps through a list of genotypes per strain, building up a list of ranges of missing data for each strain
     fn step_many_unknown_intervals_mut(
         state: &mut (Vec<Option<usize>>, Vec<Vec<Range<usize>>>),
-        next: (usize, &[(Genotype, f64)]),
+        next: (usize, &ArrayView1<Genotype>),
     ) {
         let (ix, genotype) = next;
 
-        for (strain_ix, (geno, _)) in genotype.iter().enumerate() {
+        for (strain_ix, geno) in genotype.iter().enumerate() {
             if let Genotype::Unk = geno {
                 match state.0[strain_ix] {
                     None => state.0[strain_ix] = Some(ix),
@@ -219,7 +239,7 @@ impl Locus {
         for (locus_ix, locus) in loci.iter().enumerate() {
             Self::step_many_unknown_intervals_mut(
                 &mut state,
-                (locus_ix, &locus.genotype),
+                (locus_ix, &locus.genotype.slice(s![..])),
             )
         }
 
@@ -245,10 +265,10 @@ impl Locus {
         let r_2 = f2 * (1.0 - f1) / f0;
         let r_3 = f1 * f2 / (1.0 - f0);
 
-        let (prev_geno, _) = prev.genotype[strain_ix];
-        let (next_geno, _) = next.genotype[strain_ix];
+        let prev_geno = prev.genotype[strain_ix];
+        let next_geno = next.genotype[strain_ix];
 
-        let new_genotype = match (prev_geno, next_geno) {
+        let new_genoprob = match (prev_geno, next_geno) {
             (Genotype::Mat, Genotype::Mat) => 1.0 - 2.0 * r_0,
             (Genotype::Het, Genotype::Mat) => 1.0 - r_0 - r_1,
             (Genotype::Pat, Genotype::Mat) => 1.0 - 2.0 * r_1,
@@ -261,7 +281,7 @@ impl Locus {
             _ => panic!("Genotype was unknown when it shouldn't be!"),
         };
 
-        locus.genotype[strain_ix].1 = new_genotype;
+        locus.genoprob[strain_ix] = new_genoprob;
 
         if let Some(d) = &mut locus.dominance {
             // if dominance {
@@ -309,7 +329,7 @@ impl Locus {
 
     // allocating this every step is probably slowing things down (it was twice as fast without)
     pub fn genotypes_subset(&self, strain_ixs: &[usize]) -> Vec<f64> {
-        strain_ixs.iter().map(|ix| self.genotype[*ix].1).collect()
+        strain_ixs.iter().map(|ix| self.genoprob[*ix]).collect()
     }
 
     pub fn genotypes_subindices(
@@ -318,7 +338,7 @@ impl Locus {
         subset: &mut Vec<f64>,
     ) {
         for (data_ix, ix) in indices.iter().enumerate() {
-            subset[data_ix] = self.genotype[*ix].1;
+            subset[data_ix] = self.genoprob[*ix];
         }
     }
 
@@ -335,7 +355,26 @@ impl Locus {
 #[derive(Clone, Debug)]
 pub struct Genome {
     chr_order: Vec<String>,
-    pub chromosomes: BTreeMap<String, Vec<Locus>>,
+    pub chromosomes: BTreeMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
+}
+
+/// Iterator that steps through the genome in order
+pub struct GenomeIter<'a> {
+    keys: Vec<String>,
+    chromosomes: &'a BTreeMap<String, Vec<Locus>>,
+}
+
+impl<'a> Iterator for GenomeIter<'a> {
+    type Item = &'a Vec<Locus>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.keys.is_empty() {
+            None
+        } else {
+            let chr = self.keys.remove(0);
+            self.chromosomes.get(&chr)
+        }
+    }
 }
 
 impl Genome {
@@ -358,9 +397,24 @@ impl Genome {
         self.or_push_chromosome(chr).push(locus);
     }
 
+    /// Iterates through the chromosomes in the order they were added to the genotype
+    pub fn iter(&self) -> GenomeIter<'_> {
+        GenomeIter {
+            keys: self.chr_order.clone(),
+            chromosomes: &self.chromosomes,
+        }
+    }
+
+    /// Mutably iterates through the chromosomes, using the sorted order from BTreeMap
+    fn iter_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (&'_ String, &'_ mut Vec<Locus>)> {
+        self.chromosomes.iter_mut()
+    }
+
     pub fn find_locus(&self, name: &str) -> Option<&Locus> {
         let mut result = None;
-        for (_, loci) in self.chromosomes.iter() {
+        for loci in self.iter() {
             if let Some(l) = loci.iter().find(|locus| locus.marker.name == name)
             {
                 result = Some(l)
@@ -374,7 +428,7 @@ impl Genome {
         let find_adj_known = |geno_ix: usize, ix: usize| {
             let (lhs, rhs) = chromosome.split_at(ix + 1);
             let pred =
-                |locus: &&Locus| locus.genotype[geno_ix].0 != Genotype::Unk;
+                |locus: &&Locus| locus.genotype[geno_ix] != Genotype::Unk;
             let err = "Error when searching for adjacent loci";
             (
                 lhs.iter().rev().find(pred).expect(err),
@@ -567,27 +621,26 @@ impl Dataset {
     fn estimate_unknown(&mut self) {
         // first replace any cases of "Unknown" in the first and last loci of each chromosome
 
-        let replace = |geno: &mut Genotype, val: &mut f64| {
-            if let Genotype::Unk = *geno {
-                *geno = Genotype::Het;
-                *val = 0.0;
-            }
-        };
-
-        for (_chr, loci) in self.genome.chromosomes.iter_mut() {
+        for (_chr, loci) in self.genome.iter_mut() {
             let replace_genotype = |locus: Option<&mut Locus>| {
-                locus
-                    .unwrap()
-                    .genotype
-                    .iter_mut()
-                    .for_each(|(geno, val)| replace(geno, val))
+                let l = locus.unwrap();
+
+                let gt = &mut l.genotype;
+                let gp = &mut l.genoprob;
+
+                azip!(mut gt (gt), mut gp (gp) in {
+                    if let Genotype::Unk = *gt {
+                        *gt = Genotype::Het;
+                        *gp = 0.0;
+                    }
+                });
             };
 
             replace_genotype(loci.first_mut());
             replace_genotype(loci.last_mut());
         }
 
-        for (_chr, loci) in self.genome.chromosomes.iter_mut() {
+        for (_chr, loci) in self.genome.iter_mut() {
             // then, for each chromosome, construct the intervals of
             // unknown genotypes
             let unk = Locus::find_unknown_intervals(loci);
@@ -744,40 +797,25 @@ mod tests {
 
     #[test]
     fn it_can_estimate_unknown_genotypes() {
-        let genos = vec![
-            vec![
-                (Genotype::Mat, -1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Pat, 1.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Pat, 1.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-                (Genotype::Pat, 1.0),
-            ],
-            vec![
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Pat, 1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Unk, 99.0),
-            ],
-            vec![
-                (Genotype::Pat, 1.0),
-                (Genotype::Mat, -1.0),
-                (Genotype::Mat, -1.0),
-            ],
+        let genotypes = vec![
+            array![Genotype::Mat, Genotype::Mat, Genotype::Pat],
+            array![Genotype::Unk, Genotype::Pat, Genotype::Unk],
+            array![Genotype::Unk, Genotype::Unk, Genotype::Pat],
+            array![Genotype::Unk, Genotype::Unk, Genotype::Unk],
+            array![Genotype::Pat, Genotype::Mat, Genotype::Unk],
+            array![Genotype::Pat, Genotype::Mat, Genotype::Mat],
         ];
 
-        let mk_locus = |name, cm, genotype| Locus {
+        let genoprobs = vec![
+            array![-1.0, -1.0, 1.0],
+            array![99.0, 1.0, 99.0],
+            array![99.0, 99.0, 1.0],
+            array![99.0, 99.0, 99.0],
+            array![1.0, -1.0, 99.0],
+            array![1.0, -1.0, -1.0],
+        ];
+
+        let mk_locus = |name, cm, genotype, genoprob| Locus {
             marker: Marker {
                 name: String::from(name),
                 centi_morgan: cm,
@@ -786,72 +824,59 @@ mod tests {
             },
             dominance: None,
             genotype,
+            genoprob,
         };
 
         let loci_new = vec![
             mk_locus(
                 "Mk1",
                 10.0,
-                vec![
-                    (Genotype::Mat, -1.0),
-                    (Genotype::Mat, -1.0),
-                    (Genotype::Pat, 1.0),
-                ],
+                array![Genotype::Mat, Genotype::Mat, Genotype::Pat],
+                array![-1.0, -1.0, 1.0],
             ),
             mk_locus(
                 "Mk2",
                 30.3,
-                vec![
-                    (Genotype::Unk, -0.18523506128077272),
-                    (Genotype::Pat, 1.0),
-                    (Genotype::Unk, 0.9616255554798838),
-                ],
+                array![Genotype::Unk, Genotype::Pat, Genotype::Unk],
+                array![-0.18523506128077272, 1.0, 0.9616255554798838],
             ),
             mk_locus(
                 "Mk3",
                 40.1,
-                vec![
-                    (Genotype::Unk, 0.18906668494617707),
-                    (Genotype::Unk, 0.3421367343627405),
-                    (Genotype::Pat, 1.0),
-                ],
+                array![Genotype::Unk, Genotype::Unk, Genotype::Pat],
+                array![0.18906668494617707, 0.3421367343627405, 1.0],
             ),
             mk_locus(
                 "Mk4",
                 50.2,
-                vec![
-                    (Genotype::Unk, 0.5826065314914579),
-                    (Genotype::Unk, -0.3223330030526561),
-                    (Genotype::Unk, 0.3223330030526552),
+                array![Genotype::Unk, Genotype::Unk, Genotype::Unk],
+                array![
+                    0.5826065314914579,
+                    -0.3223330030526561,
+                    0.3223330030526552,
                 ],
             ),
             mk_locus(
                 "Mk5",
                 60.3,
-                vec![
-                    (Genotype::Pat, 1.0),
-                    (Genotype::Mat, -1.0),
-                    (Genotype::Unk, -0.34213673436274084),
-                ],
+                array![Genotype::Pat, Genotype::Mat, Genotype::Unk],
+                array![1.0, -1.0, -0.34213673436274084],
             ),
             mk_locus(
                 "Mk6",
                 70.1,
-                vec![
-                    (Genotype::Pat, 1.0),
-                    (Genotype::Mat, -1.0),
-                    (Genotype::Mat, -1.0),
-                ],
+                array![Genotype::Pat, Genotype::Mat, Genotype::Mat],
+                array![1.0, -1.0, -1.0],
             ),
         ];
 
         let mut loci = vec![
-            mk_locus("Mk1", 10.0, genos[0].clone()),
-            mk_locus("Mk2", 30.3, genos[1].clone()),
-            mk_locus("Mk3", 40.1, genos[2].clone()),
-            mk_locus("Mk4", 50.2, genos[3].clone()),
-            mk_locus("Mk5", 60.3, genos[4].clone()),
-            mk_locus("Mk6", 70.1, genos[5].clone()),
+            mk_locus("Mk1", 10.0, genotypes[0].clone(), genoprobs[0].clone()),
+            mk_locus("Mk2", 30.3, genotypes[1].clone(), genoprobs[1].clone()),
+            mk_locus("Mk3", 40.1, genotypes[2].clone(), genoprobs[2].clone()),
+            mk_locus("Mk4", 50.2, genotypes[3].clone(), genoprobs[3].clone()),
+            mk_locus("Mk5", 60.3, genotypes[4].clone(), genoprobs[4].clone()),
+            mk_locus("Mk6", 70.1, genotypes[5].clone(), genoprobs[5].clone()),
         ];
 
         let unk = Locus::find_unknown_intervals(&loci);

@@ -146,7 +146,6 @@ pub fn bootstrap(
     n_boot: usize,
 ) -> Vec<usize> {
     let strain_ixs = dataset.strain_indices(strains);
-    let n = traits.len();
     let n_loci = dataset.n_loci();
 
     let n_test = n_boot.max(BOOTSTRAP_TESTSIZE).min(MAXPERMUTATION);
@@ -161,7 +160,7 @@ pub fn bootstrap(
             .genotypes_subset(&strain_ixs)
     });
 
-    for i in 0..n_test {
+    for _ in 0..n_test {
         let indices = bootstrap_indices(traits);
         let b_traits: Vec<_> =
             indices.iter().cloned().map(|ix| traits[ix]).collect();
