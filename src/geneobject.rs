@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
@@ -335,33 +335,14 @@ impl Locus {
 #[derive(Clone, Debug)]
 pub struct Genome {
     chr_order: Vec<String>,
-    pub chromosomes: HashMap<String, Vec<Locus>>, // chromosomes: Vec<(String, Vec<Locus>)>
-}
-
-/// Iterator that steps through the genome in order
-pub struct GenomeIter<'a> {
-    keys: Vec<String>,
-    chromosomes: &'a HashMap<String, Vec<Locus>>,
-}
-
-impl<'a> Iterator for GenomeIter<'a> {
-    type Item = &'a Vec<Locus>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.keys.is_empty() {
-            None
-        } else {
-            let chr = self.keys.remove(0);
-            self.chromosomes.get(&chr)
-        }
-    }
+    pub chromosomes: BTreeMap<String, Vec<Locus>>,
 }
 
 impl Genome {
     fn new() -> Genome {
         Genome {
             chr_order: Vec::new(),
-            chromosomes: HashMap::new(),
+            chromosomes: BTreeMap::new(),
         }
     }
 
@@ -377,24 +358,9 @@ impl Genome {
         self.or_push_chromosome(chr).push(locus);
     }
 
-    /// Iterates through the chromosomes in the order they were added to the genotype
-    pub fn iter(&self) -> GenomeIter<'_> {
-        GenomeIter {
-            keys: self.chr_order.clone(),
-            chromosomes: &self.chromosomes,
-        }
-    }
-
-    /// Mutably iterates through the chromosomes, using the arbitrary order from HashMap
-    fn iter_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (&'_ String, &'_ mut Vec<Locus>)> {
-        self.chromosomes.iter_mut()
-    }
-
     pub fn find_locus(&self, name: &str) -> Option<&Locus> {
         let mut result = None;
-        for loci in self.iter() {
+        for (_, loci) in self.chromosomes.iter() {
             if let Some(l) = loci.iter().find(|locus| locus.marker.name == name)
             {
                 result = Some(l)
@@ -456,7 +422,7 @@ impl Genome {
     }
 
     fn interval_mapped(&self, interval: f64) -> Genome {
-        let mut chromosomes = HashMap::new();
+        let mut chromosomes = BTreeMap::new();
         for (chr, loci) in self.chromosomes.iter() {
             let new_loci = Self::chromosome_interval(&loci, interval);
             chromosomes.insert(chr.clone(), new_loci);
@@ -608,7 +574,7 @@ impl Dataset {
             }
         };
 
-        for (_chr, loci) in self.genome.iter_mut() {
+        for (_chr, loci) in self.genome.chromosomes.iter_mut() {
             let replace_genotype = |locus: Option<&mut Locus>| {
                 locus
                     .unwrap()
@@ -621,7 +587,7 @@ impl Dataset {
             replace_genotype(loci.last_mut());
         }
 
-        for (_chr, loci) in self.genome.iter_mut() {
+        for (_chr, loci) in self.genome.chromosomes.iter_mut() {
             // then, for each chromosome, construct the intervals of
             // unknown genotypes
             let unk = Locus::find_unknown_intervals(loci);

@@ -61,7 +61,7 @@ pub fn regression(
         panic!("Control could not be found in loci list");
     }
 
-    for loci in dataset.genome.iter() {
+    for (_, loci) in dataset.genome.chromosomes.iter() {
         for locus in loci.iter() {
             let genotypes = locus.genotypes_subset(&strain_ixs);
 
@@ -119,7 +119,7 @@ pub fn permutation(
             let mut lrs_max = 0.0;
             let mut genotypes = vec![0.0; strain_ixs.len()];
 
-            for loci in dataset.genome.iter() {
+            for (_, loci) in dataset.genome.chromosomes.iter() {
                 for locus in loci.iter() {
                     locus.genotypes_subindices(&strain_ixs, &mut genotypes);
                     let reg_result = regression_2n(&p_traits, &genotypes);
@@ -170,7 +170,7 @@ pub fn bootstrap(
         let mut l = 0;
         let mut lrs_max_pos = 0;
 
-        for loci in dataset.genome.iter() {
+        for (_, loci) in dataset.genome.chromosomes.iter() {
             for locus in loci.iter() {
                 let genotypes = locus.genotypes_subset(&strain_ixs);
                 let b_genotypes: Vec<_> =
