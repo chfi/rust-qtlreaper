@@ -53,7 +53,7 @@ pub fn regression(
         dataset
             .genome
             .find_locus(c)
-            .unwrap()
+            .expect("Could not find control genotype")
             .genotypes_subset(&strain_ixs)
     });
 
@@ -156,7 +156,7 @@ pub fn bootstrap(
         dataset
             .genome
             .find_locus(c)
-            .unwrap()
+            .expect("Could not find control genotype")
             .genotypes_subset(&strain_ixs)
     });
 

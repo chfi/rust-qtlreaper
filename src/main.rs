@@ -115,12 +115,15 @@ fn main() {
 
     let traits = Traits::read_file(&opt.traits_file);
 
-    let mut fout = File::create(opt.output_file).unwrap();
+    let mut fout =
+        File::create(opt.output_file).expect("Error creating output file");
 
-    let mut permu_fout = File::create(opt.permu_output_file).unwrap();
+    let mut permu_fout = File::create(opt.permu_output_file)
+        .expect("Error creating permutations output file");
 
     if !opt.output_json {
-        fout.write_all(format_header(&dataset).as_bytes()).unwrap();
+        fout.write_all(format_header(&dataset).as_bytes())
+            .expect("Error writing JSON output");
     }
 
     for (name, values) in traits.traits.iter() {
@@ -140,32 +143,42 @@ fn main() {
 
         if opt.output_json {
             for qtl in qtls.iter() {
-                fout.write_all(serde_json::to_string(qtl).unwrap().as_bytes())
-                    .unwrap();
+                fout.write_all(
+                    serde_json::to_string(qtl)
+                        .expect("Error generating JSON")
+                        .as_bytes(),
+                )
+                .expect("Error writing JSON output");
             }
 
             permu_fout
-                .write_all(serde_json::to_string(&permu).unwrap().as_bytes())
-                .unwrap();
+                .write_all(
+                    serde_json::to_string(&permu)
+                        .expect("Error generating permutations JSON")
+                        .as_bytes(),
+                )
+                .expect("Error writing JSON permutations output");
         } else {
             for qtl in qtls.iter() {
                 let pvalue = regression::pvalue(qtl.lrs, &permu);
 
                 let line = format!("{}\t{}\t{:.*}\n", name, qtl, 3, pvalue);
 
-                fout.write_all(line.as_bytes()).unwrap();
+                fout.write_all(line.as_bytes())
+                    .expect("Error writing output");
             }
 
             for p in permu.iter() {
                 permu_fout
                     .write_all(format!("{:.*}\n", 5, p).as_bytes())
-                    .unwrap();
+                    .expect("Error writing permutations output");
             }
         }
     }
 
     if opt.bootstrap {
-        let mut bootstrap_fout = File::create(opt.bootstrap_output).unwrap();
+        let mut bootstrap_fout = File::create(opt.bootstrap_output)
+            .expect("Error creating bootstrap output file");
 
         for (_name, values) in traits.traits.iter() {
             let bootstrap = regression::bootstrap(
@@ -178,7 +191,9 @@ fn main() {
 
             for bs_line in bootstrap.iter() {
                 let line = format!("{}\n", bs_line);
-                bootstrap_fout.write_all(line.as_bytes()).unwrap();
+                bootstrap_fout
+                    .write_all(line.as_bytes())
+                    .expect("Error writing bootstrap output");
             }
         }
     }

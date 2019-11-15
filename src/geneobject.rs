@@ -66,7 +66,10 @@ impl Metadata {
         }
 
         if line.starts_with('@') {
-            let sep = line.find(':').unwrap();
+            let sep = line.find(':').expect(&format!(
+                "Line contained ill-formed property: {:?}",
+                line
+            ));
             let name = &line[1..sep];
             let val = &line[sep + 1..];
 
@@ -104,7 +107,7 @@ impl Metadata {
 
         if name == None || mat == None || pat == None || typ == None {
             panic!(
-                "Required metadata was not provided!\nname = {:?}\nmat = {:?}\npat = {:?}\ntype = {:?}",
+                "Required metadata was not provided\nname = {:?}\nmat = {:?}\npat = {:?}\ntype = {:?}",
                 name, mat, pat, typ
             );
         }
@@ -164,9 +167,15 @@ impl Locus {
 
         let chromosome = words[0].to_string();
         let name = words[1].into();
-        let centi_morgan = words[2].parse::<f64>().unwrap();
+        let centi_morgan = words[2]
+            .parse::<f64>()
+            .expect(&format!("Error parsing cm at line {:?}", line));
         let mega_basepair = if has_mb {
-            words[3].parse::<f64>().ok()
+            Some(
+                words[3]
+                    .parse::<f64>()
+                    .expect(&format!("Error parsing MBp at line {:?}", line)),
+            )
         } else {
             None
         };
@@ -567,8 +576,8 @@ impl Dataset {
     }
 
     pub fn read_file(path: &PathBuf) -> Dataset {
-        let f = File::open(path)
-            .unwrap_or_else(|_| panic!("Error opening file {:?}", path));
+        let f =
+            File::open(path).expect(&format!("Error opening file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -584,7 +593,7 @@ impl Dataset {
                     panic!("Reached end of file before parsing dataset header")
                 }
                 Some(l) => {
-                    let ll = l.unwrap();
+                    let ll = l.expect("Error parsing dataset");
                     if ll.starts_with("Chr	Locus	cM") {
                         let header = Dataset::parse_dataset_header(&ll);
                         has_mb = header.0;
@@ -710,7 +719,7 @@ pub struct Traits {
 impl Traits {
     pub fn read_file(path: &PathBuf) -> Traits {
         let f = File::open(path)
-            .unwrap_or_else(|_| panic!("Error opening traits file {:?}", path));
+            .expect(&format!("Error opening traits file {:?}", path));
 
         let reader = BufReader::new(f);
         let mut lines = reader.lines();
@@ -718,7 +727,7 @@ impl Traits {
         let strains = match lines.next() {
             None => panic!("Reached end of file before parsing traits header"),
             Some(l) => {
-                let ll = l.unwrap();
+                let ll = l.expect("Error parsing trait file");
                 if ll.starts_with("Trait") {
                     ll.split_terminator('\t')
                         .skip(1)
@@ -885,5 +894,4 @@ mod tests {
 
         assert_eq!(loci, loci_new);
     }
-
 }
