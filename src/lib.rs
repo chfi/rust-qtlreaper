@@ -6,4 +6,5 @@ extern crate serde_json;
 extern crate ndarray;
 
 pub mod geneobject;
+pub mod geno;
 pub mod regression;

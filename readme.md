@@ -72,3 +72,5 @@ qtlreaper --geno tests/data/input/BXD.txt --traits tests/data/input/trait.txt -o
 - [X] configurable number of permutations
 - [ ] configurable LRS threshold on permutations
 - [ ] abort permutations when LRS threshold reached
+- [ ] Better error handling
+- [ ] Progress report on stdout

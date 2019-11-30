@@ -11,13 +11,13 @@ use std::path::PathBuf;
 // `Metadata` is really only used for parsing; it's the data above the
 // header line in the genome data.
 #[derive(Debug, PartialEq, Clone)]
-struct Metadata {
-    name: String,
-    maternal: String,
-    paternal: String,
-    dataset_type: String, // "intercross" or "riset"
-    heterozygous: String, // defaults to "H"
-    unknown: String,      // defaults to "U"
+pub struct Metadata {
+    pub name: String,
+    pub maternal: String,
+    pub paternal: String,
+    pub dataset_type: String, // "intercross" or "riset"
+    pub heterozygous: String, // defaults to "H"
+    pub unknown: String,      // defaults to "U"
 }
 
 impl Metadata {
@@ -35,7 +35,7 @@ impl Metadata {
         }
     }
 
-    fn parse_genotype(&self, geno: &str) -> Genotype {
+    pub fn parse_genotype(&self, geno: &str) -> Genotype {
         if geno == self.maternal {
             Genotype::Mat
         } else if geno == self.paternal {
@@ -49,7 +49,7 @@ impl Metadata {
         }
     }
 
-    fn parse_dominance(&self, geno: &str) -> f64 {
+    pub fn parse_dominance(&self, geno: &str) -> f64 {
         if geno == self.maternal || geno == self.paternal {
             0.0
         } else if geno == self.heterozygous || geno == self.unknown {
@@ -80,7 +80,7 @@ impl Metadata {
     }
 
     // panic!s if the provided lines do not contain @name, @mat, and @pat fields
-    fn from_lines(lines: Vec<&str>) -> Metadata {
+    pub fn from_lines(lines: Vec<&str>) -> Metadata {
         let mut name = None;
         // the type should be either `riset` or `intercross`; fix later
         let mut typ = None;
