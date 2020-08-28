@@ -453,6 +453,8 @@ impl Genome {
             let next_locus = &chromosome[(ix + 1).min(chromosome.len() - 1)];
             let mut first = true;
 
+            let mut cur_mb = locus.marker.mega_basepair.unwrap_or(0.0);
+
             loop {
                 if first {
                     interval_chromosome.push(locus.clone());
@@ -460,6 +462,14 @@ impl Genome {
                     let mut new_locus = locus.clone();
                     new_locus.marker.name = String::from(" - ");
                     new_locus.marker.centi_morgan = cur_cm;
+
+                    if (cur_mb != 0.0) {
+                        let next_mb = next_locus.marker.mega_basepair.unwrap();
+                        let mb_step = (next_mb - cur_mb*interval)/(next_locus.cm() - locus.cm());
+                        cur_mb = mb_step + cur_mb;
+                        new_locus.marker.mega_basepair = Some(cur_mb);
+                    }
+
                     for (geno_ix, _geno) in locus.genotype.iter().enumerate() {
                         let (prev, next) = find_adj_known(geno_ix, ix);
                         Locus::estimate_unknown_locus(
